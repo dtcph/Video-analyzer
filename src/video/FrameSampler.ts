@@ -42,6 +42,11 @@ export class FrameSampler {
 
     start(): void {
         this.stop();
+        // Reset the rate-cap reference point on every playback start. Otherwise,
+        // after a full playthrough this still holds a timestamp near the old
+        // duration, and on replay (currentTime back near 0) maybeSample() keeps
+        // rejecting samples until currentTime climbs back past that stale value.
+        this.lastSampleSeconds = -Infinity;
 
         if (typeof this.video.requestVideoFrameCallback === "function") {
             const step = () => {
