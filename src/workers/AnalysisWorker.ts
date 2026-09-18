@@ -43,7 +43,7 @@ function processFrame(frame: CapturedFrame, frameNumber: number, timestamp: numb
     const processingTimeMs = performance.now() - start;
 
     const response: WorkerResponse = { type: "FRAME_ANALYZED", result, processingTimeMs };
-    self.postMessage(response);
+    self.postMessage(response, [result.exposureMask.buffer]);
 }
 
 self.onmessage = (event: MessageEvent<WorkerRequest>) => {
@@ -57,6 +57,10 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
 
         case "STOP_ANALYSIS":
             isAnalyzing = false;
+            break;
+
+        case "UPDATE_SETTINGS":
+            engine.updateSettings(message.settings);
             break;
 
         case "PROCESS_FRAME":

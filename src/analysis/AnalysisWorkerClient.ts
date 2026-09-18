@@ -50,6 +50,10 @@ export class AnalysisWorkerClient {
         this.post({ type: "STOP_ANALYSIS" });
     }
 
+    updateSettings(settings: Partial<AnalysisSettings>): void {
+        this.post({ type: "UPDATE_SETTINGS", settings });
+    }
+
     isRunning(): boolean {
         return this.running;
     }

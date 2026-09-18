@@ -23,7 +23,7 @@ export class AnalysisEngine {
 
     analyzeFrame(frame: number, timestamp: number, imageData: ImageData): FrameAnalysis {
         const blobs = this.detector.detect(imageData, this.settings);
-        const exposure = ExposureAnalyzer.analyze(imageData, this.settings);
-        return { frame, timestamp, width: imageData.width, height: imageData.height, blobs, exposure };
+        const { data: exposure, mask: exposureMask } = ExposureAnalyzer.analyze(imageData, this.settings);
+        return { frame, timestamp, width: imageData.width, height: imageData.height, blobs, exposure, exposureMask };
     }
 }

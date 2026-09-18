@@ -1,12 +1,60 @@
 .analysis-controls {
     display: flex;
-    align-items: center;
-    gap: 20px;
+    flex-direction: column;
+    gap: 10px;
     padding: 10px 12px;
     background: var(--panel-bg);
     border: 1px solid var(--border);
     font-family: var(--mono);
     font-size: 12px;
+}
+
+.analysis-controls-row {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+}
+
+.exposure-controls-row {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border);
+}
+
+.exposure-mode-toggles {
+    display: flex;
+    gap: 16px;
+    color: var(--text-dim);
+}
+
+.exposure-mode-toggles label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+}
+
+.threshold-slider {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--text-dim);
+    white-space: nowrap;
+}
+
+.threshold-slider input[type="range"] {
+    accent-color: var(--accent);
+    width: 100px;
+}
+
+.exposure-readout {
+    display: flex;
+    gap: 20px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border);
+    color: var(--accent);
 }
 
 .play-pause-button {

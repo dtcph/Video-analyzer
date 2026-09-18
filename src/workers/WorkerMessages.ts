@@ -23,7 +23,12 @@ export interface StopAnalysisMessage {
     type: "STOP_ANALYSIS";
 }
 
-export type WorkerRequest = ProcessFrameMessage | StartAnalysisMessage | StopAnalysisMessage;
+export interface UpdateSettingsMessage {
+    type: "UPDATE_SETTINGS";
+    settings: Partial<AnalysisSettings>;
+}
+
+export type WorkerRequest = ProcessFrameMessage | StartAnalysisMessage | StopAnalysisMessage | UpdateSettingsMessage;
 
 export interface FrameAnalyzedMessage {
     type: "FRAME_ANALYZED";

@@ -2,6 +2,7 @@ import type { VideoPlayer } from "../video/VideoPlayer";
 import type { TrackManager } from "../tracking/TrackManager";
 import type { AnnotationManager } from "../annotations/AnnotationManager";
 import { AnalysisOverlay } from "./AnalysisOverlay";
+import type { ExposureVisibility } from "./AnalysisOverlay";
 import { TrackingOverlay } from "./TrackingOverlay";
 import { AnnotationRenderer } from "./AnnotationRenderer";
 import type { FrameAnalysis } from "../analysis/AnalysisTypes";
@@ -25,6 +26,7 @@ export class VideoRenderer {
     private annotationRenderer: AnnotationRenderer;
 
     private visibility: LayerVisibility = { analysis: true, tracking: true, annotations: true };
+    private exposureVisibility: ExposureVisibility = { clip: true, highlight: true, crushedBlacks: true };
     private rafHandle: number | null = null;
     private latestFrameResult: FrameAnalysis | null = null;
 
@@ -65,8 +67,21 @@ export class VideoRenderer {
         return this.visibility;
     }
 
+    setExposureVisibility(visibility: Partial<ExposureVisibility>): void {
+        this.exposureVisibility = { ...this.exposureVisibility, ...visibility };
+        this.renderOnce();
+    }
+
+    getExposureVisibility(): ExposureVisibility {
+        return this.exposureVisibility;
+    }
+
     setLatestFrameResult(result: FrameAnalysis | null): void {
         this.latestFrameResult = result;
+        // While playing, the rAF loop already redraws every frame. While
+        // paused/scrubbing there is no loop, so a result arriving async
+        // from the worker needs to trigger its own draw or it never appears.
+        if (this.rafHandle === null) this.renderOnce();
     }
 
     resizeToVideo(width: number, height: number): void {
@@ -99,7 +114,7 @@ export class VideoRenderer {
         const frame = this.currentFrameIndex();
 
         if (this.visibility.analysis) {
-            this.analysisOverlay.render(this.latestFrameResult);
+            this.analysisOverlay.render(this.latestFrameResult, this.exposureVisibility);
         } else {
             this.analysisOverlay.clear();
         }

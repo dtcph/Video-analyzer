@@ -18,3 +18,22 @@ export function distance(a: { x: number; y: number }, b: { x: number; y: number 
     const dy = a.y - b.y;
     return Math.sqrt(dx * dx + dy * dy);
 }
+
+/**
+ * Scales sourceWidth/sourceHeight down to fit within maxWidth/maxHeight
+ * while preserving aspect ratio (never upscales). Used to size the
+ * analysis canvas so a non-16:9 source isn't stretched to match a
+ * fixed-aspect budget.
+ */
+export function fitWithinPreservingAspect(
+    sourceWidth: number,
+    sourceHeight: number,
+    maxWidth: number,
+    maxHeight: number
+): { width: number; height: number } {
+    const scale = Math.min(maxWidth / sourceWidth, maxHeight / sourceHeight, 1);
+    return {
+        width: Math.max(2, Math.round((sourceWidth * scale) / 2) * 2),
+        height: Math.max(2, Math.round((sourceHeight * scale) / 2) * 2)
+    };
+}

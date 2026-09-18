@@ -8,6 +8,8 @@ import { AnalysisControls } from "../ui/AnalysisControls";
 import { TrackPanel } from "../ui/TrackPanel";
 import { Inspector } from "../ui/Inspector";
 import { MetadataPanel } from "../ui/MetadataPanel";
+import { ANALYSIS_RESOLUTION_BUDGET } from "../analysis/AnalysisTypes";
+import { fitWithinPreservingAspect } from "../utils/geometry";
 
 const DEFAULT_FRAME_RATE = 30;
 
@@ -125,6 +127,7 @@ export class App {
         this.state.analysisWorkerClient.onFrameAnalyzed((result) => {
             this.state.blobTracker.update(result.frame, result.blobs);
             this.renderer.setLatestFrameResult(result);
+            this.analysisControls.updateExposureStats(result.exposure);
         });
 
         this.state.analysisWorkerClient.onStatsUpdate((stats) => {
@@ -138,6 +141,13 @@ export class App {
         this.analysisControls.onTogglePlayback(() => this.player.togglePlayback());
         this.analysisControls.onToggleLayer((layer, enabled) => {
             this.renderer.setLayerVisibility({ [layer]: enabled });
+        });
+        this.analysisControls.onToggleExposureMode((mode, enabled) => {
+            this.renderer.setExposureVisibility({ [mode]: enabled });
+        });
+        this.analysisControls.onChangeThreshold((partial) => {
+            this.state.analysisEngine.updateSettings(partial);
+            this.state.analysisWorkerClient.updateSettings(partial);
         });
         this.analysisControls.onToggleAnalysis(() => this.toggleAnalysis());
 
@@ -178,6 +188,13 @@ export class App {
 
             this.frameRate = metadata.frameRate;
 
+            const { width: analysisWidth, height: analysisHeight } = fitWithinPreservingAspect(
+                metadata.width,
+                metadata.height,
+                ANALYSIS_RESOLUTION_BUDGET.width,
+                ANALYSIS_RESOLUTION_BUDGET.height
+            );
+            this.state.analysisEngine.updateSettings({ analysisWidth, analysisHeight });
             const settings = this.state.analysisEngine.getSettings();
             this.frameSampler?.stop();
             this.frameSampler = new FrameSampler(this.videoEl);
@@ -186,6 +203,10 @@ export class App {
                 this.state.analysisWorkerClient.submitFrame(frame, frameNumber, timestamp);
             });
 
+            // Canvases fill the stage at 100%/100%, so the stage box must match
+            // the video's own aspect ratio or their pixel-accurate buffers (set
+            // below) get stretched to whatever shape a fixed-aspect box imposes.
+            this.stageEl.style.aspectRatio = `${metadata.width} / ${metadata.height}`;
             this.renderer.resizeToVideo(metadata.width, metadata.height);
             this.timeline.setDuration(metadata.durationSeconds);
             this.metadataPanel.show(metadata);
