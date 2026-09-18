@@ -4,7 +4,7 @@ import type { AnnotationManager } from "../annotations/AnnotationManager";
 import { AnalysisOverlay } from "./AnalysisOverlay";
 import { TrackingOverlay } from "./TrackingOverlay";
 import { AnnotationRenderer } from "./AnnotationRenderer";
-import type { FrameAnalysisResult } from "../analysis/AnalysisTypes";
+import type { FrameAnalysis } from "../analysis/AnalysisTypes";
 
 export interface LayerVisibility {
     analysis: boolean;
@@ -26,7 +26,7 @@ export class VideoRenderer {
 
     private visibility: LayerVisibility = { analysis: true, tracking: true, annotations: true };
     private rafHandle: number | null = null;
-    private latestFrameResult: FrameAnalysisResult | null = null;
+    private latestFrameResult: FrameAnalysis | null = null;
 
     constructor(
         private readonly player: VideoPlayer,
@@ -65,7 +65,7 @@ export class VideoRenderer {
         return this.visibility;
     }
 
-    setLatestFrameResult(result: FrameAnalysisResult | null): void {
+    setLatestFrameResult(result: FrameAnalysis | null): void {
         this.latestFrameResult = result;
     }
 

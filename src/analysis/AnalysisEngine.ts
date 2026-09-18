@@ -1,4 +1,4 @@
-import type { AnalysisSettings, FrameAnalysisResult } from "./AnalysisTypes";
+import type { AnalysisSettings, FrameAnalysis } from "./AnalysisTypes";
 import { DEFAULT_ANALYSIS_SETTINGS } from "./AnalysisTypes";
 import { BlobDetector } from "./BlobDetector";
 import { ExposureAnalyzer } from "./ExposureAnalyzer";
@@ -21,9 +21,9 @@ export class AnalysisEngine {
         return this.settings;
     }
 
-    analyzeFrame(frame: number, imageData: ImageData): FrameAnalysisResult {
+    analyzeFrame(frame: number, timestamp: number, imageData: ImageData): FrameAnalysis {
         const blobs = this.detector.detect(imageData, this.settings);
         const exposure = ExposureAnalyzer.analyze(imageData, this.settings);
-        return { frame, blobs, exposure };
+        return { frame, timestamp, width: imageData.width, height: imageData.height, blobs, exposure };
     }
 }

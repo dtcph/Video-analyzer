@@ -9,8 +9,3 @@ export interface VideoMetadata {
 }
 
 export type PlaybackState = "empty" | "loading" | "ready" | "playing" | "paused";
-
-export interface VideoFrameRef {
-    frameIndex: number;
-    timestampSeconds: number;
-}

@@ -1,4 +1,4 @@
-import type { FrameAnalysisResult } from "../analysis/AnalysisTypes";
+import type { FrameAnalysis } from "../analysis/AnalysisTypes";
 
 /**
  * Draws exposure-analysis feedback (clipping / crushed-blacks
@@ -12,7 +12,7 @@ export class AnalysisOverlay {
         this.ctx.clearRect(0, 0, canvas.width, canvas.height);
     }
 
-    render(result: FrameAnalysisResult | null): void {
+    render(result: FrameAnalysis | null): void {
         this.clear();
         if (!result) return;
 

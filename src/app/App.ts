@@ -1,6 +1,6 @@
 import { AppState } from "./AppState";
 import { VideoPlayer } from "../video/VideoPlayer";
-import { FrameExtractor } from "../video/FrameExtractor";
+import { FrameSampler } from "../video/FrameSampler";
 import { VideoRenderer } from "../rendering/VideoRenderer";
 import { UploadPanel } from "../ui/UploadPanel";
 import { Timeline } from "../ui/Timeline";
@@ -22,7 +22,7 @@ export class App {
 
     private player!: VideoPlayer;
     private renderer!: VideoRenderer;
-    private frameExtractor: FrameExtractor | null = null;
+    private frameSampler: FrameSampler | null = null;
 
     private uploadPanel = new UploadPanel();
     private metadataPanel = new MetadataPanel();
@@ -104,26 +104,32 @@ export class App {
         this.player.onStateChange((playbackState) => {
             this.analysisControls.setPlaybackEnabled(playbackState !== "empty" && playbackState !== "loading");
             this.analysisControls.setPlaybackLabel(playbackState === "playing" ? "Pause" : "Play");
+
+            if (playbackState === "playing") {
+                this.frameSampler?.start();
+            } else {
+                this.frameSampler?.stop();
+            }
         });
 
         this.videoEl.addEventListener("timeupdate", () => {
             this.timeline.setCurrentTime(this.player.getCurrentSeconds());
-            this.analyzeCurrentFrame();
-        });
-    }
 
-    private analyzeCurrentFrame(): void {
-        if (!this.frameExtractor) return;
-
-        const frame = Math.round(this.player.getCurrentSeconds() * this.frameRate);
-        const { imageData } = this.frameExtractor.extract(this.videoEl, {
-            frameIndex: frame,
-            timestampSeconds: this.player.getCurrentSeconds()
+            // The sampler's own loop covers playback; while paused/scrubbing,
+            // capture the scrubbed-to frame directly for immediate feedback.
+            if (this.player.getState() !== "playing") {
+                void this.frameSampler?.captureNow();
+            }
         });
 
-        const result = this.state.analysisEngine.analyzeFrame(frame, imageData);
-        this.state.blobTracker.update(frame, result.blobs);
-        this.renderer.setLatestFrameResult(result);
+        this.state.analysisWorkerClient.onFrameAnalyzed((result) => {
+            this.state.blobTracker.update(result.frame, result.blobs);
+            this.renderer.setLatestFrameResult(result);
+        });
+
+        this.state.analysisWorkerClient.onStatsUpdate((stats) => {
+            this.analysisControls.updateStats(stats);
+        });
     }
 
     private wireUi(): void {
@@ -133,6 +139,7 @@ export class App {
         this.analysisControls.onToggleLayer((layer, enabled) => {
             this.renderer.setLayerVisibility({ [layer]: enabled });
         });
+        this.analysisControls.onToggleAnalysis(() => this.toggleAnalysis());
 
         this.timeline.onScrub((seconds) => this.player.seekToSeconds(seconds));
 
@@ -153,12 +160,31 @@ export class App {
         });
     }
 
+    private toggleAnalysis(): void {
+        if (this.state.analysisWorkerClient.isRunning()) {
+            this.state.analysisWorkerClient.stop();
+            this.frameSampler?.stop();
+            this.analysisControls.setAnalysisLabel("Start Analysis");
+        } else {
+            this.state.analysisWorkerClient.start(this.state.analysisEngine.getSettings());
+            if (this.player.getState() === "playing") this.frameSampler?.start();
+            this.analysisControls.setAnalysisLabel("Stop Analysis");
+        }
+    }
+
     private async loadVideo(file: File): Promise<void> {
         try {
             const metadata = await this.player.load(file);
 
             this.frameRate = metadata.frameRate;
-            this.frameExtractor = new FrameExtractor(metadata.width, metadata.height);
+
+            const settings = this.state.analysisEngine.getSettings();
+            this.frameSampler?.stop();
+            this.frameSampler = new FrameSampler(this.videoEl);
+            this.frameSampler.configure(settings.sampleFps, this.frameRate);
+            this.frameSampler.onFrame((frame, frameNumber, timestamp) => {
+                this.state.analysisWorkerClient.submitFrame(frame, frameNumber, timestamp);
+            });
 
             this.renderer.resizeToVideo(metadata.width, metadata.height);
             this.timeline.setDuration(metadata.durationSeconds);
@@ -169,9 +195,16 @@ export class App {
             this.uploadPanel.element.classList.add("is-collapsed");
             this.uploadPanel.clearError();
 
+            this.analysisControls.setAnalysisEnabled(true);
+            this.state.analysisWorkerClient.start(settings);
+            this.analysisControls.setAnalysisLabel("Stop Analysis");
+
             this.renderer.renderOnce();
         } catch (error) {
-            this.frameExtractor = null;
+            this.frameSampler?.stop();
+            this.frameSampler = null;
+            this.state.analysisWorkerClient.stop();
+            this.analysisControls.setAnalysisEnabled(false);
             this.metadataPanel.hide();
             this.stageEl.classList.add("is-empty");
             this.uploadPanel.element.classList.remove("is-collapsed");

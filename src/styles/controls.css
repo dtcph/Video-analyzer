@@ -31,6 +31,51 @@
     cursor: not-allowed;
 }
 
+.analysis-toggle-button {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    font-family: var(--mono);
+    font-size: 12px;
+    padding: 6px 14px;
+    cursor: pointer;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.analysis-toggle-button:hover:not(:disabled) {
+    border-color: var(--accent-dim);
+    color: var(--accent);
+}
+
+.analysis-toggle-button:disabled {
+    color: var(--text-dim);
+    border-color: var(--border);
+    cursor: not-allowed;
+    opacity: 0.5;
+}
+
+.analysis-stats {
+    margin-left: auto;
+    color: var(--text-dim);
+}
+
+.analysis-stats summary {
+    cursor: pointer;
+    list-style: none;
+}
+
+.analysis-stats summary::-webkit-details-marker {
+    display: none;
+}
+
+.analysis-stats-body {
+    display: flex;
+    gap: 12px;
+    margin-top: 6px;
+    white-space: nowrap;
+}
+
 .layer-toggles {
     display: flex;
     gap: 16px;
