@@ -3,6 +3,8 @@ import type { AnalysisVisibility } from "../rendering/AnalysisOverlay";
 import type { AnalysisStats } from "../analysis/AnalysisWorkerClient";
 import type { AnalysisSettings, ExposureData } from "../analysis/AnalysisTypes";
 import type { BlobData } from "../tracking/TrackTypes";
+import type { CollapsiblePanel } from "./CollapsiblePanel";
+import { makeCollapsible } from "./CollapsiblePanel";
 
 export type LayerToggleHandler = (layer: keyof LayerVisibility, enabled: boolean) => void;
 export type ExposureModeToggleHandler = (mode: keyof AnalysisVisibility, enabled: boolean) => void;
@@ -24,6 +26,7 @@ export class AnalysisControls {
     private onExposureModeToggle: ExposureModeToggleHandler | null = null;
     private onThresholdChange: ThresholdChangeHandler | null = null;
     private onAnalysisToggle: AnalysisToggleHandler | null = null;
+    private collapsible!: CollapsiblePanel;
 
     constructor() {
         this.element = document.createElement("div");
@@ -119,6 +122,12 @@ export class AnalysisControls {
         });
 
         this.analysisToggleButton.addEventListener("click", () => this.onAnalysisToggle?.());
+
+        this.collapsible = makeCollapsible(this.element, "Analysis", true);
+    }
+
+    setOpen(open: boolean): void {
+        this.collapsible.setOpen(open);
     }
 
     private get analysisToggleButton(): HTMLButtonElement {

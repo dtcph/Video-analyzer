@@ -1,12 +1,74 @@
 .analysis-controls {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
     padding: 10px 12px;
     background: var(--panel-bg);
     border: 1px solid var(--border);
     font-family: var(--mono);
     font-size: 12px;
+}
+
+/* Shared open/close chrome for every panel wrapped with makeCollapsible(). */
+.panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.panel-title {
+    margin: 0;
+    font-family: var(--mono);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-dim);
+}
+
+.panel-toggle {
+    width: 20px;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    color: var(--text-dim);
+    font-size: 10px;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.panel-toggle:hover {
+    color: var(--accent);
+    border-color: var(--accent);
+}
+
+/*
+ * Smooth open/close without JS-measured heights: the outer grid row
+ * animates between 1fr (natural content height) and 0fr, and the inner
+ * .panel-body clips to that via overflow:hidden. Every collapsible
+ * panel's row/gap layout now lives on .panel-body itself (it used to
+ * sit on the panel root before the header/collapse wrapper existed).
+ */
+.panel-collapse {
+    display: grid;
+    grid-template-rows: 1fr;
+    transition: grid-template-rows 0.2s ease, opacity 0.2s ease;
+    opacity: 1;
+}
+
+.panel.is-collapsed .panel-collapse {
+    grid-template-rows: 0fr;
+    opacity: 0;
+}
+
+.panel-body {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    overflow: hidden;
+    min-height: 0;
 }
 
 .analysis-controls-row {
@@ -225,20 +287,22 @@
     border-left-color: var(--danger);
 }
 
-/* Track panel */
-.track-panel {
+/* Tracking controls */
+.tracking-controls {
     background: var(--panel-bg);
     border: 1px solid var(--border);
     padding: 10px 12px;
 }
 
-.track-panel-title {
-    margin: 0 0 8px;
-    font-family: var(--mono);
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: var(--text-dim);
+.tracking-controls .panel-body {
+    gap: 8px;
+}
+
+/* Track panel */
+.track-panel {
+    background: var(--panel-bg);
+    border: 1px solid var(--border);
+    padding: 10px 12px;
 }
 
 .track-list {
@@ -269,6 +333,15 @@
 }
 
 .track-list-item--lost .track-status {
+    color: var(--danger);
+}
+
+.track-marker {
+    color: var(--accent);
+    width: 12px;
+}
+
+.track-list-item--lost .track-marker {
     color: var(--danger);
 }
 

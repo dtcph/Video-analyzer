@@ -29,6 +29,7 @@ export class VideoRenderer {
     private exposureVisibility: AnalysisVisibility = { clip: true, highlight: true, crushedBlacks: true, blobs: true };
     private rafHandle: number | null = null;
     private latestFrameResult: FrameAnalysis | null = null;
+    private selectedTrackId: number | null = null;
 
     constructor(
         private readonly player: VideoPlayer,
@@ -76,6 +77,11 @@ export class VideoRenderer {
         return this.exposureVisibility;
     }
 
+    setSelectedTrack(trackId: number | null): void {
+        this.selectedTrackId = trackId;
+        this.renderOnce();
+    }
+
     setLatestFrameResult(result: FrameAnalysis | null): void {
         this.latestFrameResult = result;
         // While playing, the rAF loop already redraws every frame. While
@@ -106,7 +112,7 @@ export class VideoRenderer {
         this.rafHandle = null;
     }
 
-    private currentFrameIndex(): number {
+    currentFrameIndex(): number {
         return Math.round(this.player.getCurrentSeconds() * this.frameRate);
     }
 
@@ -120,7 +126,7 @@ export class VideoRenderer {
         }
 
         if (this.visibility.tracking) {
-            this.trackingOverlay.render(this.trackManager.getAllTracks(), frame);
+            this.trackingOverlay.render(this.trackManager.getAllTracks(), frame, this.selectedTrackId);
         } else {
             this.trackingOverlay.clear();
         }

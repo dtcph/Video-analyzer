@@ -1,43 +1,47 @@
-import type { BlobData, TrackPoint } from "../tracking/TrackTypes";
+import type { BlobData, TrackPoint, TrackingSettings } from "../tracking/TrackTypes";
+import { DEFAULT_TRACKING_SETTINGS } from "../tracking/TrackTypes";
 import type { TrackManager } from "../tracking/TrackManager";
-import { latestPoint } from "../tracking/Track";
-import { scoreMatch } from "./TrackingConfidence";
-
-const MATCH_THRESHOLD = 0.4;
+import type { BlobMatcher } from "./BlobMatcher";
+import { GreedyBlobMatcher } from "./BlobMatcher";
 
 /**
  * Associates per-frame blob detections with existing tracks in a
- * TrackManager, starting new tracks for unmatched blobs.
+ * TrackManager, starting new tracks for unmatched blobs. The
+ * association algorithm itself is delegated to a BlobMatcher so it can
+ * be swapped for a more advanced strategy later; this class only owns
+ * the per-frame orchestration (match -> extend -> start -> expire).
  */
 export class BlobTracker {
-    constructor(private readonly trackManager: TrackManager) {}
+    private settings: TrackingSettings = DEFAULT_TRACKING_SETTINGS;
+
+    constructor(
+        private readonly trackManager: TrackManager,
+        private readonly matcher: BlobMatcher = new GreedyBlobMatcher()
+    ) {
+        this.trackManager.updateSettings(this.settings);
+    }
+
+    updateSettings(partial: Partial<TrackingSettings>): void {
+        this.settings = { ...this.settings, ...partial };
+        this.trackManager.updateSettings(this.settings);
+    }
+
+    getSettings(): TrackingSettings {
+        return this.settings;
+    }
 
     update(frame: number, blobs: BlobData[]): void {
         const activeTracks = this.trackManager.getActiveTracks();
-        const unmatchedBlobs = new Set(blobs);
+        const matches = this.matcher.match(activeTracks, blobs, this.settings);
 
-        for (const track of activeTracks) {
-            const previous = latestPoint(track);
-            if (!previous) continue;
-
-            let bestBlob: BlobData | null = null;
-            let bestScore = MATCH_THRESHOLD;
-
-            for (const blob of unmatchedBlobs) {
-                const score = scoreMatch(previous, blob);
-                if (score > bestScore) {
-                    bestScore = score;
-                    bestBlob = blob;
-                }
-            }
-
-            if (bestBlob) {
-                unmatchedBlobs.delete(bestBlob);
-                this.trackManager.extendTrack(track.id, toTrackPoint(frame, bestBlob, bestScore));
-            }
+        const matchedBlobs = new Set<BlobData>();
+        for (const { track, blob, score } of matches) {
+            matchedBlobs.add(blob);
+            this.trackManager.extendTrack(track.id, toTrackPoint(frame, blob, score));
         }
 
-        for (const blob of unmatchedBlobs) {
+        for (const blob of blobs) {
+            if (matchedBlobs.has(blob)) continue;
             this.trackManager.startTrack(toTrackPoint(frame, blob, 1));
         }
 
@@ -48,8 +52,8 @@ export class BlobTracker {
 function toTrackPoint(frame: number, blob: BlobData, confidence: number): TrackPoint {
     return {
         frame,
-        x: blob.x,
-        y: blob.y,
+        x: blob.centerX,
+        y: blob.centerY,
         width: blob.width,
         height: blob.height,
         confidence

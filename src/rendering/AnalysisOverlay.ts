@@ -2,10 +2,10 @@ import type { FrameAnalysis } from "../analysis/AnalysisTypes";
 import { ExposureMaskBit } from "../analysis/AnalysisTypes";
 
 export interface AnalysisVisibility {
-    clip: boolean;
-    highlight: boolean;
-    crushedBlacks: boolean;
-    blobs: boolean;
+  clip: boolean;
+  highlight: boolean;
+  crushedBlacks: boolean;
+  blobs: boolean;
 }
 
 const CLIP_COLOR = [255, 60, 60, 170] as const;
@@ -27,86 +27,108 @@ const BLOB_COLOR = "rgba(255, 165, 0, 0.9)";
  * for those).
  */
 export class AnalysisOverlay {
-    private readonly maskCanvas = document.createElement("canvas");
-    private readonly maskCtx: CanvasRenderingContext2D;
+  private readonly maskCanvas = document.createElement("canvas");
+  private readonly maskCtx: CanvasRenderingContext2D;
 
-    constructor(private readonly ctx: CanvasRenderingContext2D) {
-        const maskCtx = this.maskCanvas.getContext("2d");
-        if (!maskCtx) throw new Error("AnalysisOverlay: could not acquire 2D context for mask canvas");
-        this.maskCtx = maskCtx;
+  constructor(private readonly ctx: CanvasRenderingContext2D) {
+    const maskCtx = this.maskCanvas.getContext("2d");
+    if (!maskCtx)
+      throw new Error(
+        "AnalysisOverlay: could not acquire 2D context for mask canvas",
+      );
+    this.maskCtx = maskCtx;
+  }
+
+  clear(): void {
+    const { canvas } = this.ctx;
+    this.ctx.clearRect(0, 0, canvas.width, canvas.height);
+  }
+
+  render(result: FrameAnalysis | null, visibility: AnalysisVisibility): void {
+    this.clear();
+    if (!result) return;
+
+    if (visibility.clip || visibility.highlight || visibility.crushedBlacks) {
+      this.renderExposureMask(result, visibility);
     }
 
-    clear(): void {
-        const { canvas } = this.ctx;
-        this.ctx.clearRect(0, 0, canvas.width, canvas.height);
+    if (visibility.blobs) {
+      this.renderBlobs(result);
+    }
+  }
+
+  private renderExposureMask(
+    result: FrameAnalysis,
+    visibility: AnalysisVisibility,
+  ): void {
+    const { canvas } = this.ctx;
+    const { width, height, exposureMask } = result;
+
+    this.maskCanvas.width = width;
+    this.maskCanvas.height = height;
+    const maskImage = this.maskCtx.createImageData(width, height);
+
+    for (let p = 0; p < exposureMask.length; p++) {
+      const bits = exposureMask[p];
+      let color: readonly [number, number, number, number] | null = null;
+
+      if (visibility.clip && bits & ExposureMaskBit.Clip) color = CLIP_COLOR;
+      else if (visibility.highlight && bits & ExposureMaskBit.Highlight)
+        color = HIGHLIGHT_COLOR;
+      else if (visibility.crushedBlacks && bits & ExposureMaskBit.CrushedBlack)
+        color = CRUSHED_COLOR;
+
+      if (!color) continue;
+      const o = p * 4;
+      maskImage.data[o] = color[0];
+      maskImage.data[o + 1] = color[1];
+      maskImage.data[o + 2] = color[2];
+      maskImage.data[o + 3] = color[3];
     }
 
-    render(result: FrameAnalysis | null, visibility: AnalysisVisibility): void {
-        this.clear();
-        if (!result) return;
+    this.maskCtx.putImageData(maskImage, 0, 0);
+    this.ctx.imageSmoothingEnabled = false;
+    this.ctx.drawImage(
+      this.maskCanvas,
+      0,
+      0,
+      width,
+      height,
+      0,
+      0,
+      canvas.width,
+      canvas.height,
+    );
+  }
 
-        if (visibility.clip || visibility.highlight || visibility.crushedBlacks) {
-            this.renderExposureMask(result, visibility);
-        }
+  private renderBlobs(result: FrameAnalysis): void {
+    const { canvas } = this.ctx;
 
-        if (visibility.blobs) {
-            this.renderBlobs(result);
-        }
+    for (const blob of result.blobs) {
+      const x = blob.x * canvas.width;
+      const y = blob.y * canvas.height;
+      const w = blob.width * canvas.width;
+      const h = blob.height * canvas.height;
+      const cx = blob.centerX * canvas.width;
+      const cy = blob.centerY * canvas.height;
+
+      this.ctx.save();
+      this.ctx.strokeStyle = BLOB_COLOR;
+      this.ctx.lineWidth = 4.5;
+      this.ctx.strokeRect(x, y, w, h);
+
+      this.ctx.fillStyle = BLOB_COLOR;
+      this.ctx.beginPath();
+      this.ctx.arc(cx, cy, 4.5, 0, Math.PI * 2);
+      this.ctx.fill();
+
+      this.ctx.font = "bold 16px monospace";
+      this.ctx.fillText(
+        `BLOB ${String(blob.id).padStart(2, "0")}`,
+        x,
+        y + h + 18,
+      );
+      this.ctx.restore();
     }
-
-    private renderExposureMask(result: FrameAnalysis, visibility: AnalysisVisibility): void {
-        const { canvas } = this.ctx;
-        const { width, height, exposureMask } = result;
-
-        this.maskCanvas.width = width;
-        this.maskCanvas.height = height;
-        const maskImage = this.maskCtx.createImageData(width, height);
-
-        for (let p = 0; p < exposureMask.length; p++) {
-            const bits = exposureMask[p];
-            let color: readonly [number, number, number, number] | null = null;
-
-            if (visibility.clip && bits & ExposureMaskBit.Clip) color = CLIP_COLOR;
-            else if (visibility.highlight && bits & ExposureMaskBit.Highlight) color = HIGHLIGHT_COLOR;
-            else if (visibility.crushedBlacks && bits & ExposureMaskBit.CrushedBlack) color = CRUSHED_COLOR;
-
-            if (!color) continue;
-            const o = p * 4;
-            maskImage.data[o] = color[0];
-            maskImage.data[o + 1] = color[1];
-            maskImage.data[o + 2] = color[2];
-            maskImage.data[o + 3] = color[3];
-        }
-
-        this.maskCtx.putImageData(maskImage, 0, 0);
-        this.ctx.imageSmoothingEnabled = false;
-        this.ctx.drawImage(this.maskCanvas, 0, 0, width, height, 0, 0, canvas.width, canvas.height);
-    }
-
-    private renderBlobs(result: FrameAnalysis): void {
-        const { canvas } = this.ctx;
-
-        for (const blob of result.blobs) {
-            const x = blob.x * canvas.width;
-            const y = blob.y * canvas.height;
-            const w = blob.width * canvas.width;
-            const h = blob.height * canvas.height;
-            const cx = blob.centerX * canvas.width;
-            const cy = blob.centerY * canvas.height;
-
-            this.ctx.save();
-            this.ctx.strokeStyle = BLOB_COLOR;
-            this.ctx.lineWidth = 3;
-            this.ctx.strokeRect(x, y, w, h);
-
-            this.ctx.fillStyle = BLOB_COLOR;
-            this.ctx.beginPath();
-            this.ctx.arc(cx, cy, 4.5, 0, Math.PI * 2);
-            this.ctx.fill();
-
-            this.ctx.font = "bold 16px monospace";
-            this.ctx.fillText(`BLOB ${String(blob.id).padStart(2, "0")}`, x, y + h + 18);
-            this.ctx.restore();
-        }
-    }
+  }
 }

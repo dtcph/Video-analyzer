@@ -28,6 +28,11 @@
     pointer-events: none;
 }
 
+.video-stage canvas#tracking-layer {
+    pointer-events: auto;
+    cursor: pointer;
+}
+
 .upload-panel {
     border: 1px dashed var(--border);
     background: var(--panel-bg);

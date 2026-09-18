@@ -20,6 +20,31 @@ export function distance(a: { x: number; y: number }, b: { x: number; y: number 
 }
 
 /**
+ * Intersection-over-union of two rects given as center-based x/y (as
+ * used by BlobData/TrackPoint) plus width/height. Returns 0..1, where
+ * 1 means the rects are identical.
+ */
+export function intersectionOverUnion(a: Rect, b: Rect): number {
+    const aLeft = a.x - a.width / 2;
+    const aRight = a.x + a.width / 2;
+    const aTop = a.y - a.height / 2;
+    const aBottom = a.y + a.height / 2;
+
+    const bLeft = b.x - b.width / 2;
+    const bRight = b.x + b.width / 2;
+    const bTop = b.y - b.height / 2;
+    const bBottom = b.y + b.height / 2;
+
+    const overlapWidth = Math.max(0, Math.min(aRight, bRight) - Math.max(aLeft, bLeft));
+    const overlapHeight = Math.max(0, Math.min(aBottom, bBottom) - Math.max(aTop, bTop));
+    const intersection = overlapWidth * overlapHeight;
+    if (intersection <= 0) return 0;
+
+    const union = rectArea(a) + rectArea(b) - intersection;
+    return union <= 0 ? 0 : intersection / union;
+}
+
+/**
  * Scales sourceWidth/sourceHeight down to fit within maxWidth/maxHeight
  * while preserving aspect ratio (never upscales). Used to size the
  * analysis canvas so a non-16:9 source isn't stretched to match a
