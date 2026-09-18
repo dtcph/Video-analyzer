@@ -23,7 +23,7 @@ function ensureCanvas(width: number, height: number): OffscreenCanvasRenderingCo
     return context as OffscreenCanvasRenderingContext2D;
 }
 
-function processFrame(frame: CapturedFrame, frameNumber: number, timestamp: number): void {
+async function processFrame(frame: CapturedFrame, frameNumber: number, timestamp: number): Promise<void> {
     if (!isAnalyzing) {
         frame.close();
         const response: WorkerResponse = { type: "FRAME_DROPPED", frameNumber };
@@ -39,7 +39,7 @@ function processFrame(frame: CapturedFrame, frameNumber: number, timestamp: numb
     frame.close();
 
     const imageData = ctx.getImageData(0, 0, settings.analysisWidth, settings.analysisHeight);
-    const result = engine.analyzeFrame(frameNumber, timestamp, imageData);
+    const result = await engine.analyzeFrame(frameNumber, timestamp, imageData);
     const processingTimeMs = performance.now() - start;
 
     const response: WorkerResponse = { type: "FRAME_ANALYZED", result, processingTimeMs };
@@ -64,7 +64,7 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
             break;
 
         case "PROCESS_FRAME":
-            processFrame(message.frame, message.frameNumber, message.timestamp);
+            void processFrame(message.frame, message.frameNumber, message.timestamp);
             break;
     }
 };

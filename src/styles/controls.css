@@ -12,20 +12,23 @@
 .analysis-controls-row {
     display: flex;
     align-items: center;
-    gap: 20px;
+    flex-wrap: wrap;
+    gap: 10px;
 }
 
 .exposure-controls-row {
     display: flex;
-    align-items: center;
-    gap: 20px;
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 10px;
     padding-top: 10px;
     border-top: 1px solid var(--border);
 }
 
 .exposure-mode-toggles {
     display: flex;
-    gap: 16px;
+    flex-wrap: wrap;
+    gap: 10px 16px;
     color: var(--text-dim);
 }
 
@@ -39,25 +42,56 @@
 .threshold-slider {
     display: flex;
     align-items: center;
+    justify-content: space-between;
     gap: 8px;
+    width: 100%;
     color: var(--text-dim);
-    white-space: nowrap;
 }
 
 .threshold-slider input[type="range"] {
     accent-color: var(--accent);
-    width: 100px;
+    flex: 1;
+    min-width: 0;
+    max-width: 120px;
 }
 
 .exposure-readout {
     display: flex;
-    gap: 20px;
+    flex-direction: column;
+    gap: 6px;
     padding-top: 10px;
     border-top: 1px solid var(--border);
     color: var(--accent);
 }
 
-.play-pause-button {
+.blob-controls-row {
+    display: flex;
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 10px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border);
+}
+
+.blob-stats {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border);
+    color: #ffa500;
+}
+
+.playback-controls {
+    display: flex;
+    gap: 10px;
+}
+
+.playback-controls[hidden] {
+    display: none;
+}
+
+.playback-button {
     background: transparent;
     border: 1px solid var(--accent-dim);
     color: var(--accent);
@@ -69,11 +103,11 @@
     letter-spacing: 0.05em;
 }
 
-.play-pause-button:hover:not(:disabled) {
+.playback-button:hover:not(:disabled) {
     border-color: var(--accent);
 }
 
-.play-pause-button:disabled {
+.playback-button:disabled {
     color: var(--text-dim);
     border-color: var(--border);
     cursor: not-allowed;
@@ -104,7 +138,8 @@
 }
 
 .analysis-stats {
-    margin-left: auto;
+    flex-basis: 100%;
+    padding-top: 6px;
     color: var(--text-dim);
 }
 
@@ -119,14 +154,15 @@
 
 .analysis-stats-body {
     display: flex;
-    gap: 12px;
+    flex-wrap: wrap;
+    gap: 8px 12px;
     margin-top: 6px;
-    white-space: nowrap;
 }
 
 .layer-toggles {
     display: flex;
-    gap: 16px;
+    flex-wrap: wrap;
+    gap: 10px 16px;
     color: var(--text-dim);
 }
 

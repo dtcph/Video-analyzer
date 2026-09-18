@@ -82,6 +82,10 @@
     font-size: 12px;
 }
 
+.metadata-panel[hidden] {
+    display: none;
+}
+
 .metadata-item {
     color: var(--text);
     white-space: nowrap;

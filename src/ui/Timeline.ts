@@ -21,6 +21,7 @@ export class Timeline {
     constructor() {
         this.element = document.createElement("div");
         this.element.className = "timeline";
+        this.element.hidden = true;
         this.element.innerHTML = `
             <div class="timeline-scrub-row">
                 <input type="range" class="timeline-scrubber" min="0" max="1" step="0.001" value="0" disabled />
@@ -48,6 +49,16 @@ export class Timeline {
         this.durationSeconds = seconds;
         this.scrubber.max = String(seconds);
         this.scrubber.disabled = false;
+        this.updateTimeLabel(0);
+        this.element.hidden = false;
+    }
+
+    hide(): void {
+        this.element.hidden = true;
+        this.durationSeconds = 0;
+        this.scrubber.value = "0";
+        this.scrubber.disabled = true;
+        this.tracksLane.innerHTML = "";
         this.updateTimeLabel(0);
     }
 

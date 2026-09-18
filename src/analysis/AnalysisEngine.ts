@@ -5,9 +5,8 @@ import { ExposureAnalyzer } from "./ExposureAnalyzer";
 
 /**
  * Coordinates per-frame analysis (blob detection + exposure stats).
- * Runs synchronously on the main thread for now; the heavy per-pixel
- * work is intended to move into AnalysisWorker once profiling shows
- * it's needed.
+ * Runs inside AnalysisWorker, off the main thread. analyzeFrame is
+ * async because blob detection awaits OpenCV.js's WASM runtime.
  */
 export class AnalysisEngine {
     private settings: AnalysisSettings = { ...DEFAULT_ANALYSIS_SETTINGS };
@@ -21,8 +20,8 @@ export class AnalysisEngine {
         return this.settings;
     }
 
-    analyzeFrame(frame: number, timestamp: number, imageData: ImageData): FrameAnalysis {
-        const blobs = this.detector.detect(imageData, this.settings);
+    async analyzeFrame(frame: number, timestamp: number, imageData: ImageData): Promise<FrameAnalysis> {
+        const blobs = await this.detector.detect(imageData, this.settings);
         const { data: exposure, mask: exposureMask } = ExposureAnalyzer.analyze(imageData, this.settings);
         return { frame, timestamp, width: imageData.width, height: imageData.height, blobs, exposure, exposureMask };
     }

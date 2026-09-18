@@ -15,13 +15,33 @@ export class VideoPlayer {
     private metadata: VideoMetadata | null = null;
     private listeners: Set<VideoPlayerListener> = new Set();
 
+    // Manual reverse-scrub loop (see playBackward) — HTMLMediaElement
+    // doesn't support negative playbackRate across browsers, so
+    // backward playback is implemented by decrementing currentTime on
+    // a rAF loop instead. The native element stays paused throughout,
+    // so the native "pause" event must be ignored while this is active
+    // or it would immediately overwrite the "playing-reverse" state.
+    // Backward playback is disabled — not needed currently.
+    // private reverseRafHandle: number | null = null;
+    // private reverseLastTimestamp: number | null = null;
+    // private manualReverseActive = false;
+
     constructor(videoElement: HTMLVideoElement) {
         this.element = videoElement;
         this.element.playsInline = true;
 
-        this.element.addEventListener("play", () => this.setState("playing"));
-        this.element.addEventListener("pause", () => this.setState("paused"));
-        this.element.addEventListener("ended", () => this.setState("paused"));
+        this.element.addEventListener("play", () => {
+            // this.manualReverseActive = false;
+            this.setState("playing");
+        });
+        this.element.addEventListener("pause", () => {
+            // if (this.manualReverseActive) return;
+            this.setState("paused");
+        });
+        this.element.addEventListener("ended", () => {
+            // this.manualReverseActive = false;
+            this.setState("paused");
+        });
     }
 
     onStateChange(listener: VideoPlayerListener): () => void {
@@ -43,6 +63,7 @@ export class VideoPlayer {
     }
 
     async load(file: File): Promise<VideoMetadata> {
+        // this.stopReversePlayback();
         this.setState("loading");
 
         if (this.objectUrl) {
@@ -91,20 +112,78 @@ export class VideoPlayer {
     }
 
     play(): void {
+        // this.stopReversePlayback();
         void this.element.play();
     }
 
     pause(): void {
+        // const wasReversing = this.reverseRafHandle !== null;
+        // this.stopReversePlayback();
         this.element.pause();
+        // If we were reversing, the element was already paused the whole
+        // time, so calling pause() again is a no-op and fires no native
+        // "pause" event — set the state explicitly instead.
+        // if (wasReversing) this.setState("paused");
     }
 
     togglePlayback(): void {
-        if (this.element.paused) {
-            this.play();
-        } else {
+        if (!this.element.paused) {
             this.pause();
+        } else {
+            this.play();
         }
     }
+
+    // /**
+    //  * Plays backward from the current position by decrementing
+    //  * currentTime on a rAF loop (see class-level comment). Holds at
+    //  * frame 0 rather than looping or erroring once it gets there.
+    //  */
+    // playBackward(): void {
+    //     if (this.reverseRafHandle !== null) return;
+    //
+    //     if (!this.element.paused) {
+    //         this.manualReverseActive = true;
+    //         this.element.pause();
+    //     }
+    //
+    //     if (this.element.currentTime <= 0) {
+    //         this.manualReverseActive = false;
+    //         this.setState("paused");
+    //         return;
+    //     }
+    //
+    //     this.setState("playing-reverse");
+    //     this.reverseLastTimestamp = null;
+    //
+    //     const step = (timestamp: number) => {
+    //         if (this.reverseLastTimestamp === null) this.reverseLastTimestamp = timestamp;
+    //         const deltaSeconds = (timestamp - this.reverseLastTimestamp) / 1000;
+    //         this.reverseLastTimestamp = timestamp;
+    //
+    //         const next = this.element.currentTime - deltaSeconds;
+    //         if (next <= 0) {
+    //             this.element.currentTime = 0;
+    //             this.stopReversePlayback();
+    //             this.setState("paused");
+    //             return;
+    //         }
+    //
+    //         this.element.currentTime = next;
+    //         this.reverseRafHandle = requestAnimationFrame(step);
+    //     };
+    //
+    //     this.reverseRafHandle = requestAnimationFrame(step);
+    // }
+    //
+    // private stopReversePlayback(): void {
+    //     if (this.reverseRafHandle !== null) {
+    //         cancelAnimationFrame(this.reverseRafHandle);
+    //         this.reverseRafHandle = null;
+    //     }
+    //     this.reverseLastTimestamp = null;
+    //     this.manualReverseActive = false;
+    // }
 
     seekToSeconds(seconds: number): void {
         this.element.currentTime = seconds;

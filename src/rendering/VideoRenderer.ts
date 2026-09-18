@@ -2,7 +2,7 @@ import type { VideoPlayer } from "../video/VideoPlayer";
 import type { TrackManager } from "../tracking/TrackManager";
 import type { AnnotationManager } from "../annotations/AnnotationManager";
 import { AnalysisOverlay } from "./AnalysisOverlay";
-import type { ExposureVisibility } from "./AnalysisOverlay";
+import type { AnalysisVisibility } from "./AnalysisOverlay";
 import { TrackingOverlay } from "./TrackingOverlay";
 import { AnnotationRenderer } from "./AnnotationRenderer";
 import type { FrameAnalysis } from "../analysis/AnalysisTypes";
@@ -26,7 +26,7 @@ export class VideoRenderer {
     private annotationRenderer: AnnotationRenderer;
 
     private visibility: LayerVisibility = { analysis: true, tracking: true, annotations: true };
-    private exposureVisibility: ExposureVisibility = { clip: true, highlight: true, crushedBlacks: true };
+    private exposureVisibility: AnalysisVisibility = { clip: true, highlight: true, crushedBlacks: true, blobs: true };
     private rafHandle: number | null = null;
     private latestFrameResult: FrameAnalysis | null = null;
 
@@ -52,7 +52,7 @@ export class VideoRenderer {
         this.annotationRenderer = new AnnotationRenderer(annotationCtx);
 
         this.player.onStateChange((state) => {
-            if (state === "playing") this.startLoop();
+            if (state === "playing" /* || state === "playing-reverse" */) this.startLoop();
             else this.stopLoop();
             if (state === "ready" || state === "paused") this.renderOnce();
         });
@@ -67,12 +67,12 @@ export class VideoRenderer {
         return this.visibility;
     }
 
-    setExposureVisibility(visibility: Partial<ExposureVisibility>): void {
+    setExposureVisibility(visibility: Partial<AnalysisVisibility>): void {
         this.exposureVisibility = { ...this.exposureVisibility, ...visibility };
         this.renderOnce();
     }
 
-    getExposureVisibility(): ExposureVisibility {
+    getExposureVisibility(): AnalysisVisibility {
         return this.exposureVisibility;
     }
 

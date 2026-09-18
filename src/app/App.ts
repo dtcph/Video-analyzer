@@ -4,6 +4,7 @@ import { FrameSampler } from "../video/FrameSampler";
 import { VideoRenderer } from "../rendering/VideoRenderer";
 import { UploadPanel } from "../ui/UploadPanel";
 import { Timeline } from "../ui/Timeline";
+import { PlaybackControls } from "../ui/PlaybackControls";
 import { AnalysisControls } from "../ui/AnalysisControls";
 import { TrackPanel } from "../ui/TrackPanel";
 import { Inspector } from "../ui/Inspector";
@@ -29,6 +30,7 @@ export class App {
     private uploadPanel = new UploadPanel();
     private metadataPanel = new MetadataPanel();
     private timeline = new Timeline();
+    private playbackControls = new PlaybackControls();
     private analysisControls = new AnalysisControls();
     private trackPanel = new TrackPanel();
     private inspector = new Inspector();
@@ -41,6 +43,7 @@ export class App {
         this.wirePlayer();
         this.wireUi();
         this.wireDataListeners();
+        this.wireKeyboard();
     }
 
     private buildLayout(): void {
@@ -64,6 +67,8 @@ export class App {
 
         const sidebar = document.createElement("aside");
         sidebar.className = "app-sidebar";
+        sidebar.appendChild(this.metadataPanel.element);
+        sidebar.appendChild(this.analysisControls.element);
         sidebar.appendChild(this.trackPanel.element);
         sidebar.appendChild(this.inspector.element);
 
@@ -71,8 +76,7 @@ export class App {
         main.className = "app-main";
         main.appendChild(this.uploadPanel.element);
         main.appendChild(stage);
-        main.appendChild(this.metadataPanel.element);
-        main.appendChild(this.analysisControls.element);
+        main.appendChild(this.playbackControls.element);
         main.appendChild(this.timeline.element);
 
         const layout = document.createElement("div");
@@ -104,8 +108,11 @@ export class App {
         );
 
         this.player.onStateChange((playbackState) => {
-            this.analysisControls.setPlaybackEnabled(playbackState !== "empty" && playbackState !== "loading");
-            this.analysisControls.setPlaybackLabel(playbackState === "playing" ? "Pause" : "Play");
+            const loaded = playbackState !== "empty" && playbackState !== "loading";
+            this.playbackControls.setEnabled(loaded);
+            this.playbackControls.setPlaybackLabel(
+                playbackState === "playing" /* || playbackState === "playing-reverse" */ ? "Pause" : "Play"
+            );
 
             if (playbackState === "playing") {
                 this.frameSampler?.start();
@@ -128,6 +135,7 @@ export class App {
             this.state.blobTracker.update(result.frame, result.blobs);
             this.renderer.setLatestFrameResult(result);
             this.analysisControls.updateExposureStats(result.exposure);
+            this.analysisControls.updateBlobStats(result.blobs);
         });
 
         this.state.analysisWorkerClient.onStatsUpdate((stats) => {
@@ -138,7 +146,10 @@ export class App {
     private wireUi(): void {
         this.uploadPanel.onSelect((file) => void this.loadVideo(file));
 
-        this.analysisControls.onTogglePlayback(() => this.player.togglePlayback());
+        this.playbackControls.onPlayPause(() => this.player.togglePlayback());
+        this.playbackControls.onPlayForward(() => this.player.play());
+        // this.playbackControls.onPlayBackward(() => this.player.playBackward());
+
         this.analysisControls.onToggleLayer((layer, enabled) => {
             this.renderer.setLayerVisibility({ [layer]: enabled });
         });
@@ -227,9 +238,46 @@ export class App {
             this.state.analysisWorkerClient.stop();
             this.analysisControls.setAnalysisEnabled(false);
             this.metadataPanel.hide();
+            this.timeline.hide();
             this.stageEl.classList.add("is-empty");
             this.uploadPanel.element.classList.remove("is-collapsed");
             this.uploadPanel.showError(error instanceof Error ? error.message : "Failed to load video.");
         }
+    }
+
+    /**
+     * JKL-style transport shortcuts: space/K toggles play-pause, L
+     * plays forward. Ignored while a video isn't loaded yet, or while
+     * the user is typing into a form control (so spacebar still works
+     * normally inside sliders/inputs). (J/backward is disabled — not
+     * needed currently.)
+     */
+    private wireKeyboard(): void {
+        window.addEventListener("keydown", (event) => {
+            const state = this.player.getState();
+            if (state === "empty" || state === "loading") return;
+            if (this.isTypingTarget(event.target)) return;
+
+            switch (event.key.toLowerCase()) {
+                case " ":
+                case "k":
+                    event.preventDefault();
+                    this.player.togglePlayback();
+                    break;
+                case "l":
+                    event.preventDefault();
+                    this.player.play();
+                    break;
+                // case "j":
+                //     event.preventDefault();
+                //     this.player.playBackward();
+                //     break;
+            }
+        });
+    }
+
+    private isTypingTarget(target: EventTarget | null): boolean {
+        if (!(target instanceof HTMLElement)) return false;
+        return target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable;
     }
 }

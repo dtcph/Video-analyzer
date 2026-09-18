@@ -38,8 +38,16 @@ export interface FrameAnalysis {
 }
 
 export interface AnalysisSettings {
+    /** Grayscale binarization threshold for blob detection, 0..1 (mapped to 0..255 for OpenCV). */
     threshold: number;
+    /** Minimum blob area, normalized as a fraction of total frame area. */
     minBlobArea: number;
+    /** Maximum blob area, normalized as a fraction of total frame area. */
+    maxBlobArea: number;
+    /** Morphological open/close iterations applied to the threshold mask to remove noise, 0 = off. */
+    morphologyStrength: number;
+    /** Optional Gaussian blur kernel radius in px (at analysis resolution) applied before thresholding, 0 = off. */
+    blurRadius: number;
 
     /** Luminance at/above which a pixel counts as a crushed-black shadow, 0..1. */
     shadowThreshold: number;
@@ -66,6 +74,9 @@ export const ANALYSIS_RESOLUTION_BUDGET = { width: 960, height: 540 };
 export const DEFAULT_ANALYSIS_SETTINGS: AnalysisSettings = {
     threshold: 0.5,
     minBlobArea: 0.0005,
+    maxBlobArea: 0.5,
+    morphologyStrength: 1,
+    blurRadius: 0,
     shadowThreshold: 0.02,
     highlightThreshold: 0.85,
     clipThreshold: 0.98,

@@ -8,4 +8,6 @@ export interface VideoMetadata {
     frameRateDetected: boolean;
 }
 
-export type PlaybackState = "empty" | "loading" | "ready" | "playing" | "paused";
+// "playing-reverse" was a manual reverse-scrub state (see VideoPlayer,
+// backward playback disabled) — kept in the union for now but never set.
+export type PlaybackState = "empty" | "loading" | "ready" | "playing" | "playing-reverse" | "paused";
