@@ -1,0 +1,63 @@
+.video-stage {
+    position: relative;
+    width: 100%;
+    background: #000;
+    border: 1px solid var(--border);
+    aspect-ratio: 16 / 9;
+    overflow: hidden;
+}
+
+.video-stage.is-empty {
+    display: none;
+}
+
+.video-stage video,
+.video-stage canvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+}
+
+.video-stage video {
+    object-fit: contain;
+    background: #000;
+}
+
+.video-stage canvas {
+    pointer-events: none;
+}
+
+.upload-panel {
+    border: 1px dashed var(--border);
+    background: var(--panel-bg);
+}
+
+.upload-panel.is-collapsed {
+    display: none;
+}
+
+.upload-dropzone {
+    padding: 48px 24px;
+    text-align: center;
+    cursor: pointer;
+    outline: none;
+}
+
+.upload-dropzone.is-dragover {
+    background: rgba(0, 255, 180, 0.05);
+    border-color: var(--accent);
+}
+
+.upload-title {
+    margin: 0 0 6px;
+    font-family: var(--mono);
+    color: var(--text);
+    font-size: 14px;
+}
+
+.upload-subtitle {
+    margin: 0;
+    color: var(--text-dim);
+    font-size: 12px;
+}

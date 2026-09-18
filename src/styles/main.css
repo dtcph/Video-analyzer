@@ -1,0 +1,71 @@
+:root {
+    --bg: #0a0d0f;
+    --panel-bg: #12171a;
+    --border: #232b2f;
+    --text: #d8e0e2;
+    --text-dim: #7a8890;
+    --accent: #00ffb4;
+    --accent-dim: #0a5c47;
+    --danger: #ff5050;
+    --mono: "SF Mono", "Consolas", "Menlo", monospace;
+    --sans: "Inter", "Helvetica Neue", Arial, sans-serif;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+}
+
+#app {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+.app-header {
+    padding: 20px 24px 12px;
+    border-bottom: 1px solid var(--border);
+}
+
+.app-title {
+    margin: 0;
+    font-family: var(--mono);
+    font-size: 15px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent);
+}
+
+.app-subtitle {
+    margin: 4px 0 0;
+    font-size: 12px;
+    color: var(--text-dim);
+}
+
+.app-layout {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 1fr 280px;
+    gap: 16px;
+    padding: 16px 24px;
+}
+
+.app-main {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-width: 0;
+}
+
+.app-sidebar {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
