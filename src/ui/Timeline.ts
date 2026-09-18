@@ -23,8 +23,8 @@ export class Timeline {
         this.element.className = "timeline";
         this.element.innerHTML = `
             <div class="timeline-scrub-row">
-                <input type="range" class="timeline-scrubber" min="0" max="1" step="0.001" value="0" />
-                <span class="timeline-time">00:00.000</span>
+                <input type="range" class="timeline-scrubber" min="0" max="1" step="0.001" value="0" disabled />
+                <span class="timeline-time">00:00.000 / 00:00.000</span>
             </div>
             <div class="timeline-tracks-lane"></div>
         `;
@@ -35,7 +35,7 @@ export class Timeline {
 
         this.scrubber.addEventListener("input", () => {
             const seconds = Number(this.scrubber.value);
-            this.timeLabel.textContent = formatTimecode(seconds);
+            this.updateTimeLabel(seconds);
             this.onSeek?.(seconds);
         });
     }
@@ -47,11 +47,17 @@ export class Timeline {
     setDuration(seconds: number): void {
         this.durationSeconds = seconds;
         this.scrubber.max = String(seconds);
+        this.scrubber.disabled = false;
+        this.updateTimeLabel(0);
     }
 
     setCurrentTime(seconds: number): void {
         this.scrubber.value = String(seconds);
-        this.timeLabel.textContent = formatTimecode(seconds);
+        this.updateTimeLabel(seconds);
+    }
+
+    private updateTimeLabel(currentSeconds: number): void {
+        this.timeLabel.textContent = `${formatTimecode(currentSeconds)} / ${formatTimecode(this.durationSeconds)}`;
     }
 
     renderTracks(tracks: Track[], frameRate: number): void {

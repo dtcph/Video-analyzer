@@ -66,8 +66,13 @@
     font-family: var(--mono);
     font-size: 11px;
     color: var(--text-dim);
-    min-width: 78px;
+    min-width: 170px;
     text-align: right;
+}
+
+.timeline-scrubber:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
 }
 
 .timeline-tracks-lane {

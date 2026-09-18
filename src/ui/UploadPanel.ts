@@ -1,10 +1,12 @@
 import { VideoLoader } from "../video/VideoLoader";
+import { formatFileSize } from "../utils/timing";
 
 export type FileSelectedHandler = (file: File) => void;
 
 export class UploadPanel {
     readonly element: HTMLElement;
     private onFileSelected: FileSelectedHandler | null = null;
+    private errorEl: HTMLElement;
 
     constructor() {
         this.element = document.createElement("div");
@@ -12,13 +14,15 @@ export class UploadPanel {
         this.element.innerHTML = `
             <div class="upload-dropzone" tabindex="0">
                 <p class="upload-title">Drop a video file here</p>
-                <p class="upload-subtitle">or click to browse — up to ~500MB</p>
-                <input type="file" accept="video/*" class="upload-input" hidden />
+                <p class="upload-subtitle">or click to browse — MP4 / WebM, up to ~500MB</p>
+                <input type="file" accept="video/mp4,video/webm,video/*" class="upload-input" hidden />
             </div>
+            <p class="upload-error" hidden></p>
         `;
 
         const dropzone = this.element.querySelector(".upload-dropzone") as HTMLElement;
         const input = this.element.querySelector(".upload-input") as HTMLInputElement;
+        this.errorEl = this.element.querySelector(".upload-error") as HTMLElement;
 
         dropzone.addEventListener("click", () => input.click());
         dropzone.addEventListener("keydown", (event) => {
@@ -40,6 +44,7 @@ export class UploadPanel {
         input.addEventListener("change", () => {
             const file = input.files?.[0];
             if (file) this.handleFile(file);
+            input.value = "";
         });
     }
 
@@ -47,11 +52,31 @@ export class UploadPanel {
         this.onFileSelected = handler;
     }
 
+    showError(message: string): void {
+        this.errorEl.textContent = message;
+        this.errorEl.hidden = false;
+    }
+
+    clearError(): void {
+        this.errorEl.hidden = true;
+        this.errorEl.textContent = "";
+    }
+
     private handleFile(file: File): void {
-        if (!VideoLoader.isSupported(file)) {
-            window.alert(`Unsupported file type: ${file.type || "unknown"}`);
+        this.clearError();
+
+        const validationError = VideoLoader.validate(file);
+        if (validationError) {
+            this.showError(validationError);
             return;
         }
+
+        if (!VideoLoader.isRecommendedSize(file)) {
+            this.showError(
+                `Warning: ${formatFileSize(file.size)} exceeds the ~500MB target — playback may be slow. Loading anyway.`
+            );
+        }
+
         this.onFileSelected?.(file);
     }
 }

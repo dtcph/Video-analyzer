@@ -47,29 +47,47 @@ export class VideoPlayer {
 
         if (this.objectUrl) {
             VideoLoader.revokeObjectUrl(this.objectUrl);
+            this.objectUrl = null;
         }
+        this.metadata = null;
 
-        this.objectUrl = VideoLoader.createObjectUrl(file);
-        this.element.src = this.objectUrl;
+        const objectUrl = VideoLoader.createObjectUrl(file);
+        this.objectUrl = objectUrl;
+        this.element.src = objectUrl;
 
-        await new Promise<void>((resolve, reject) => {
-            const onLoaded = () => {
-                this.element.removeEventListener("loadedmetadata", onLoaded);
-                this.element.removeEventListener("error", onError);
-                resolve();
-            };
-            const onError = () => {
-                this.element.removeEventListener("loadedmetadata", onLoaded);
-                this.element.removeEventListener("error", onError);
-                reject(new Error(`Failed to load video: ${file.name}`));
-            };
-            this.element.addEventListener("loadedmetadata", onLoaded);
-            this.element.addEventListener("error", onError);
-        });
+        try {
+            await new Promise<void>((resolve, reject) => {
+                const onLoaded = () => {
+                    cleanup();
+                    resolve();
+                };
+                const onError = () => {
+                    cleanup();
+                    reject(new Error(`Could not decode video: ${file.name}. The file may be corrupt or use an unsupported codec.`));
+                };
+                const cleanup = () => {
+                    this.element.removeEventListener("loadedmetadata", onLoaded);
+                    this.element.removeEventListener("error", onError);
+                };
+                this.element.addEventListener("loadedmetadata", onLoaded);
+                this.element.addEventListener("error", onError);
+            });
 
-        this.metadata = VideoLoader.readMetadata(this.element, file.name);
-        this.setState("ready");
-        return this.metadata;
+            if (this.element.videoWidth === 0 || this.element.videoHeight === 0) {
+                throw new Error(`Could not decode video: ${file.name}. The file may be corrupt or use an unsupported codec.`);
+            }
+
+            this.metadata = VideoLoader.readMetadata(this.element, file);
+            this.setState("ready");
+            return this.metadata;
+        } catch (error) {
+            VideoLoader.revokeObjectUrl(objectUrl);
+            this.objectUrl = null;
+            this.element.removeAttribute("src");
+            this.element.load();
+            this.setState("empty");
+            throw error;
+        }
     }
 
     play(): void {

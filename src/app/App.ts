@@ -7,6 +7,7 @@ import { Timeline } from "../ui/Timeline";
 import { AnalysisControls } from "../ui/AnalysisControls";
 import { TrackPanel } from "../ui/TrackPanel";
 import { Inspector } from "../ui/Inspector";
+import { MetadataPanel } from "../ui/MetadataPanel";
 
 const DEFAULT_FRAME_RATE = 30;
 
@@ -24,6 +25,7 @@ export class App {
     private frameExtractor: FrameExtractor | null = null;
 
     private uploadPanel = new UploadPanel();
+    private metadataPanel = new MetadataPanel();
     private timeline = new Timeline();
     private analysisControls = new AnalysisControls();
     private trackPanel = new TrackPanel();
@@ -67,6 +69,7 @@ export class App {
         main.className = "app-main";
         main.appendChild(this.uploadPanel.element);
         main.appendChild(stage);
+        main.appendChild(this.metadataPanel.element);
         main.appendChild(this.analysisControls.element);
         main.appendChild(this.timeline.element);
 
@@ -151,18 +154,28 @@ export class App {
     }
 
     private async loadVideo(file: File): Promise<void> {
-        const metadata = await this.player.load(file);
+        try {
+            const metadata = await this.player.load(file);
 
-        this.frameRate = metadata.frameRate;
-        this.frameExtractor = new FrameExtractor(metadata.width, metadata.height);
+            this.frameRate = metadata.frameRate;
+            this.frameExtractor = new FrameExtractor(metadata.width, metadata.height);
 
-        this.renderer.resizeToVideo(metadata.width, metadata.height);
-        this.timeline.setDuration(metadata.durationSeconds);
+            this.renderer.resizeToVideo(metadata.width, metadata.height);
+            this.timeline.setDuration(metadata.durationSeconds);
+            this.metadataPanel.show(metadata);
 
-        this.state.reset();
-        this.stageEl.classList.remove("is-empty");
-        this.uploadPanel.element.classList.add("is-collapsed");
+            this.state.reset();
+            this.stageEl.classList.remove("is-empty");
+            this.uploadPanel.element.classList.add("is-collapsed");
+            this.uploadPanel.clearError();
 
-        this.renderer.renderOnce();
+            this.renderer.renderOnce();
+        } catch (error) {
+            this.frameExtractor = null;
+            this.metadataPanel.hide();
+            this.stageEl.classList.add("is-empty");
+            this.uploadPanel.element.classList.remove("is-collapsed");
+            this.uploadPanel.showError(error instanceof Error ? error.message : "Failed to load video.");
+        }
     }
 }
