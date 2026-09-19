@@ -21,6 +21,8 @@ export class AppState {
 
     reset(): void {
         this.trackManager.reset();
+        this.annotationManager.reset();
+        this.blobTracker.reset();
         this.selectedTrackId = null;
     }
 }

@@ -1,8 +1,16 @@
-import type { Track } from "../tracking/TrackTypes";
+import type { Track, TrackStatus } from "../tracking/TrackTypes";
 import type { CollapsiblePanel } from "./CollapsiblePanel";
 import { makeCollapsible } from "./CollapsiblePanel";
 
 export type TrackSelectHandler = (trackId: number) => void;
+
+const STATUS_LABELS: Record<TrackStatus, string> = {
+    tentative: "tentative",
+    active: "active",
+    uncertain: "uncertain",
+    lost: "LOST",
+    abandoned: "GONE"
+};
 
 export class TrackPanel {
     readonly element: HTMLElement;
@@ -46,8 +54,8 @@ export class TrackPanel {
             item.className = `track-list-item track-list-item--${track.status}`;
             item.dataset.trackId = String(track.id);
             if (track.id === this.selectedId) item.classList.add("is-selected");
-            const marker = track.status === "lost" ? "×" : "●";
-            const statusLabel = track.status === "lost" ? "LOST" : "active";
+            const marker = track.status === "active" || track.status === "tentative" ? "●" : "×";
+            const statusLabel = STATUS_LABELS[track.status];
             item.innerHTML = `
                 <span class="track-marker">${marker}</span>
                 <span class="track-id">Track ${String(track.id).padStart(2, "0")}</span>

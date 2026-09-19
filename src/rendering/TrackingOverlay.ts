@@ -1,5 +1,10 @@
-import type { Track } from "../tracking/TrackTypes";
-import { pointAtFrame } from "../tracking/Track";
+import type { CameraMotionEstimate, Track } from "../tracking/TrackTypes";
+import { pointAtOrBeforeFrame } from "../tracking/Track";
+
+const DEBUG_PREDICTED_COLOR = "rgb(255, 210, 0)";
+const DEBUG_GATE_COLOR = "rgba(255, 210, 0, 0.35)";
+const DEBUG_VELOCITY_COLOR = "rgb(0, 180, 255)";
+const DEBUG_CAMERA_COLOR = "rgb(255, 100, 220)";
 
 const ACTIVE_COLOR = "rgb(0, 255, 180)";
 const LOST_COLOR = "rgb(255, 80, 80)";
@@ -28,10 +33,11 @@ const ONION_SKIN_FRAMES = 10;
  * Draws bounding boxes, center points, IDs, confidence, and motion
  * paths for tracks onto the tracking canvas layer. Reads Track data
  * only — never mutates it. Position is resolved live from each
- * track's point at the current frame, matching the annotation layer's
- * "no keyframing" behavior: a track with no point at this exact frame
- * simply doesn't draw a current-position marker, though its historical
- * path (frames up to now) still does.
+ * track's most recent point at or before the current frame (see
+ * pointAtOrBeforeFrame), matching the annotation layer's "no
+ * keyframing" behavior: a track holds its last known position between
+ * samples rather than flickering out on frames between them, and draws
+ * nothing once the current frame passes its last recorded point.
  *
  * When selectedTrackId is set, every other track is drawn at reduced
  * opacity and the selected track's path is drawn in full (start to
@@ -53,6 +59,8 @@ export class TrackingOverlay {
     tracks: Track[],
     frame: number,
     selectedTrackId: number | null = null,
+    debug: boolean = false,
+    camera: CameraMotionEstimate | null = null,
   ): void {
     this.clear();
     const { canvas } = this.ctx;
@@ -76,10 +84,10 @@ export class TrackingOverlay {
         isProminent,
       );
 
-      const point = pointAtFrame(track, frame);
+      const point = pointAtOrBeforeFrame(track, frame);
       if (!point) continue;
 
-      const isLost = track.status === "lost";
+      const isLost = track.status === "lost" || track.status === "abandoned";
       const color = isLost ? LOST_COLOR : ACTIVE_COLOR;
       const fill = isLost ? LOST_FILL : ACTIVE_FILL;
       const x = point.x * canvas.width;
@@ -127,9 +135,113 @@ export class TrackingOverlay {
         color,
       );
       this.ctx.restore();
+
+      if (debug) this.renderDebugTrack(track, x, y, canvas.width, canvas.height);
     }
 
     this.ctx.globalAlpha = 1;
+    if (debug && camera) this.renderCameraHud(camera, canvas.width);
+  }
+
+  /**
+   * Draws the tracker's internal state for one track — its predicted
+   * position, the gating region a detection had to fall within to
+   * match it (Track.searchRadius, drawn as an ellipse since normalized
+   * x/y radii map to different pixel extents on a non-square frame),
+   * an association line from the actual observed position to the
+   * prediction, and a rough velocity vector from the last two
+   * recorded points. Reads only plain fields already on Track — see
+   * TrackTypes.Track's predictedPosition/predictedSize/searchRadius —
+   * so this stays rendering-only code with no dependency on the
+   * tracking/analysis modules that computed them.
+   */
+  private renderDebugTrack(track: Track, actualX: number, actualY: number, width: number, height: number): void {
+    const px = track.predictedPosition.x * width;
+    const py = track.predictedPosition.y * height;
+
+    this.ctx.save();
+
+    if (track.searchRadius > 0) {
+      this.ctx.strokeStyle = DEBUG_GATE_COLOR;
+      this.ctx.setLineDash([4, 3]);
+      this.ctx.lineWidth = 1.5;
+      this.ctx.beginPath();
+      this.ctx.ellipse(px, py, track.searchRadius * width, track.searchRadius * height, 0, 0, Math.PI * 2);
+      this.ctx.stroke();
+      this.ctx.setLineDash([]);
+    }
+
+    this.ctx.strokeStyle = DEBUG_PREDICTED_COLOR;
+    this.ctx.lineWidth = 1;
+    this.ctx.beginPath();
+    this.ctx.moveTo(actualX, actualY);
+    this.ctx.lineTo(px, py);
+    this.ctx.stroke();
+
+    this.ctx.fillStyle = DEBUG_PREDICTED_COLOR;
+    this.ctx.beginPath();
+    this.ctx.arc(px, py, 4, 0, Math.PI * 2);
+    this.ctx.fill();
+    this.ctx.stroke();
+
+    const n = track.blobs.length;
+    if (n >= 2) {
+      const prev = track.blobs[n - 2];
+      const last = track.blobs[n - 1];
+      const vx = (last.x - prev.x) * width;
+      const vy = (last.y - prev.y) * height;
+      const scale = 6; // exaggerate for legibility — this is a direction/magnitude cue, not a to-scale prediction
+      this.ctx.strokeStyle = DEBUG_VELOCITY_COLOR;
+      this.ctx.lineWidth = 2;
+      this.ctx.beginPath();
+      this.ctx.moveTo(actualX, actualY);
+      this.ctx.lineTo(actualX + vx * scale, actualY + vy * scale);
+      this.ctx.stroke();
+    }
+
+    this.ctx.font = "10px monospace";
+    this.ctx.fillStyle = DEBUG_PREDICTED_COLOR;
+    this.ctx.fillText(
+      `conf ${(track.confidence * 100).toFixed(0)}% · lost ${track.lostFrames} · ${track.status}`,
+      actualX + 8,
+      actualY + 16,
+    );
+
+    this.ctx.restore();
+  }
+
+  /** Fixed-position readout of the current camera-motion estimate — see CameraMotionEstimate. */
+  private renderCameraHud(camera: CameraMotionEstimate, canvasWidth: number): void {
+    this.ctx.save();
+    this.ctx.font = "bold 11px monospace";
+    this.ctx.fillStyle = DEBUG_CAMERA_COLOR;
+    const x = 12;
+    let y = 20;
+    this.ctx.fillText("CAMERA MOTION", x, y);
+    y += 14;
+    this.ctx.font = "11px monospace";
+    this.ctx.fillText(`dx: ${(camera.dx * canvasWidth).toFixed(1)}px`, x, y);
+    y += 14;
+    this.ctx.fillText(`dy: ${(camera.dy * canvasWidth).toFixed(1)}px`, x, y);
+    y += 14;
+    this.ctx.fillText(`confidence: ${camera.confidence.toFixed(2)}`, x, y);
+    if (camera.sudden) {
+      y += 14;
+      this.ctx.fillStyle = "rgb(255, 80, 80)";
+      this.ctx.fillText("SUDDEN MOVEMENT", x, y);
+    }
+    if (camera.confidence > 0.05) {
+      const arrowScale = 40;
+      const originX = x + 90;
+      const originY = 20;
+      this.ctx.strokeStyle = DEBUG_CAMERA_COLOR;
+      this.ctx.lineWidth = 2;
+      this.ctx.beginPath();
+      this.ctx.moveTo(originX, originY);
+      this.ctx.lineTo(originX + camera.dx * arrowScale * canvasWidth, originY + camera.dy * arrowScale * canvasWidth);
+      this.ctx.stroke();
+    }
+    this.ctx.restore();
   }
 
   private renderCenterMarker(
@@ -269,7 +381,7 @@ export function hitTestTracks(
   let bestArea = Infinity;
 
   for (const track of tracks) {
-    const point = pointAtFrame(track, frame);
+    const point = pointAtOrBeforeFrame(track, frame);
     if (!point) continue;
 
     const left = point.x - point.width / 2;

@@ -1,6 +1,7 @@
 import type { VideoPlayer } from "../video/VideoPlayer";
 import type { TrackManager } from "../tracking/TrackManager";
 import type { AnnotationManager } from "../annotations/AnnotationManager";
+import type { CameraMotionEstimate } from "../tracking/TrackTypes";
 import { AnalysisOverlay } from "./AnalysisOverlay";
 import type { AnalysisVisibility } from "./AnalysisOverlay";
 import { TrackingOverlay } from "./TrackingOverlay";
@@ -30,6 +31,7 @@ export class VideoRenderer {
     private rafHandle: number | null = null;
     private latestFrameResult: FrameAnalysis | null = null;
     private selectedTrackId: number | null = null;
+    private debugMode = false;
 
     constructor(
         private readonly player: VideoPlayer,
@@ -38,7 +40,9 @@ export class VideoRenderer {
         private readonly annotationCanvas: HTMLCanvasElement,
         private readonly trackManager: TrackManager,
         private readonly annotationManager: AnnotationManager,
-        private readonly frameRate: number
+        private readonly frameRate: number,
+        /** Reads the tracker's current camera-motion estimate for the debug HUD — a plain accessor so this renderer doesn't need to depend on BlobTracker itself. */
+        private readonly getCameraMotion: () => CameraMotionEstimate | null = () => null
     ) {
         const analysisCtx = this.analysisCanvas.getContext("2d");
         const trackingCtx = this.trackingCanvas.getContext("2d");
@@ -79,6 +83,11 @@ export class VideoRenderer {
 
     setSelectedTrack(trackId: number | null): void {
         this.selectedTrackId = trackId;
+        this.renderOnce();
+    }
+
+    setDebugMode(enabled: boolean): void {
+        this.debugMode = enabled;
         this.renderOnce();
     }
 
@@ -126,7 +135,13 @@ export class VideoRenderer {
         }
 
         if (this.visibility.tracking) {
-            this.trackingOverlay.render(this.trackManager.getAllTracks(), frame, this.selectedTrackId);
+            this.trackingOverlay.render(
+                this.trackManager.getAllTracks(),
+                frame,
+                this.selectedTrackId,
+                this.debugMode,
+                this.debugMode ? this.getCameraMotion() : null
+            );
         } else {
             this.trackingOverlay.clear();
         }

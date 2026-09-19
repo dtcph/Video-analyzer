@@ -1,4 +1,4 @@
-import type { BlobData, Track, TrackingSettings } from "../tracking/TrackTypes";
+import type { BlobData, CameraMotionEstimate, Track, TrackingSettings } from "../tracking/TrackTypes";
 import { scoreMatch } from "./TrackingConfidence";
 
 export interface BlobMatch {
@@ -10,28 +10,31 @@ export interface BlobMatch {
 /**
  * Pluggable association strategy: given a frame's active tracks and
  * detected blobs, decide which blobs continue which tracks. BlobTracker
- * depends on this interface rather than a concrete algorithm, so a
- * more advanced strategy (e.g. Hungarian assignment) can replace
- * GreedyBlobMatcher later without touching track lifecycle logic.
+ * depends on this interface rather than a concrete algorithm — the
+ * default is TrackAssociator (gated Hungarian assignment); GreedyBlobMatcher
+ * below remains available as a simpler, easier-to-reason-about
+ * alternative.
  */
 export interface BlobMatcher {
-    match(tracks: Track[], blobs: BlobData[], settings: TrackingSettings): BlobMatch[];
+    match(tracks: Track[], blobs: BlobData[], settings: TrackingSettings, camera: CameraMotionEstimate | null): BlobMatch[];
 }
 
 /**
  * Greedy nearest-score matcher: repeatedly picks the single
  * highest-scoring (track, blob) pair above matchThreshold, removes
- * both from further consideration, and repeats. Simple and fast for
- * the scale of blobs this app expects; not globally optimal like the
- * Hungarian algorithm, but close enough in practice and easy to reason
- * about.
+ * both from further consideration, and repeats. Simple and fast, but
+ * — unlike TrackAssociator's Hungarian assignment — reasons about each
+ * pair in isolation, so it can leave a second-best track/blob pairing
+ * stuck with a worse match than a globally optimal assignment would
+ * have given it (the classic source of ID switches on crossing
+ * objects). Kept as a lighter-weight alternative; not the default.
  */
 export class GreedyBlobMatcher implements BlobMatcher {
-    match(tracks: Track[], blobs: BlobData[], settings: TrackingSettings): BlobMatch[] {
+    match(tracks: Track[], blobs: BlobData[], settings: TrackingSettings, camera: CameraMotionEstimate | null): BlobMatch[] {
         const candidates: BlobMatch[] = [];
         for (const track of tracks) {
             for (const blob of blobs) {
-                const score = scoreMatch(track, blob, settings);
+                const score = scoreMatch(track, blob, settings, camera);
                 if (score >= settings.matchThreshold) {
                     candidates.push({ track, blob, score });
                 }

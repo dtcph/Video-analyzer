@@ -32,6 +32,10 @@ html, body {
 .app-header {
     padding: 20px 24px 12px;
     border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
 }
 
 .app-title {
@@ -41,6 +45,30 @@ html, body {
     letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--accent);
+}
+
+.header-reset-button {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    font-family: var(--mono);
+    font-size: 12px;
+    padding: 6px 14px;
+    cursor: pointer;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.header-reset-button:hover:not(:disabled) {
+    border-color: var(--danger);
+    color: var(--danger);
+}
+
+.header-reset-button:disabled {
+    color: var(--text-dim);
+    border-color: var(--border);
+    cursor: not-allowed;
+    opacity: 0.5;
 }
 
 .app-subtitle {

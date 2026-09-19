@@ -111,6 +111,23 @@ export class VideoPlayer {
         }
     }
 
+    /**
+     * Releases the current video entirely — revokes its object URL and
+     * drops the element back to empty, so a fresh upload can take its
+     * place. Mirrors the cleanup `load()` already does on a failed
+     * load, just triggered directly rather than by an error.
+     */
+    unload(): void {
+        if (this.objectUrl) {
+            VideoLoader.revokeObjectUrl(this.objectUrl);
+            this.objectUrl = null;
+        }
+        this.metadata = null;
+        this.element.removeAttribute("src");
+        this.element.load();
+        this.setState("empty");
+    }
+
     play(): void {
         // this.stopReversePlayback();
         void this.element.play();
