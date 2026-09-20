@@ -247,8 +247,10 @@ export class AnalysisControls {
             el.textContent = "Camera motion: —";
             return;
         }
-        const { dx, dy, confidence, valid } = debug.globalMotion;
-        el.textContent = `Camera motion: dx ${dx.toFixed(1)}px dy ${dy.toFixed(1)}px confidence ${confidence.toFixed(2)} ${valid ? "(compensating)" : "(not compensating)"}`;
+        const { dx, dy, confidence, valid, model, inlierRatio, residualError, parallaxDetected } = debug.globalMotion;
+        el.textContent =
+            `Camera motion: dx ${dx.toFixed(1)}px dy ${dy.toFixed(1)}px confidence ${confidence.toFixed(2)} ${valid ? "(compensating)" : "(not compensating)"} | ` +
+            `model ${model} | inliers ${(inlierRatio * 100).toFixed(0)}% | residual ${residualError.toFixed(2)}px | parallax ${parallaxDetected ? "yes" : "no"}`;
     }
 
     updateBlobStats(blobs: BlobData[]): void {

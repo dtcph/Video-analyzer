@@ -1,12 +1,30 @@
 import type { MotionCandidate } from "./MotionCandidate";
+import type { GlobalMotion, RegionalMotionCell } from "./GlobalMotionEstimator";
 
 /** Why a candidate was rejected — surfaced in DetectorDebugInfo.rejectedCandidates, never in production BlobData. */
-export type RejectionReason = "insufficient-persistence" | "edge-like" | "incoherent-direction" | "large-unstable-region";
+export type RejectionReason = "insufficient-persistence" | "edge-like" | "incoherent-direction" | "large-unstable-region" | "parallax-background";
 
 export interface CandidateFilterResult {
     accepted: MotionCandidate[];
     rejected: { candidate: MotionCandidate; reason: RejectionReason }[];
 }
+
+/** Frame context needed for the parallax-aware gate — optional, since it only applies when the caller has a GlobalMotion estimate to check against (see BlobDetector). */
+export interface ParallaxContext {
+    globalMotion: GlobalMotion;
+    width: number;
+    height: number;
+}
+
+/**
+ * How closely (px) a candidate's own recent displacement must match its
+ * quadrant's leftover (post-global-compensation) residual motion to be
+ * read as "this region is moving the way uncompensated background/
+ * parallax residue moves here", not as its own independent motion.
+ */
+const PARALLAX_DISPLACEMENT_MATCH_PX = 2.5;
+/** A coherent quadrant's mean residual must clear this magnitude (px) before it's treated as meaningful leftover motion worth explaining a candidate away with. */
+const PARALLAX_MIN_RESIDUAL_PX = 2.0;
 
 /**
  * Per-path acceptance thresholds — not exposed as UI sliders (see the
@@ -64,12 +82,12 @@ const SMALL_PATH = {
     persistentIncoherenceMinDirection: 0.6
 } as const;
 
-export function filterCandidates(candidates: MotionCandidate[], frameArea: number): CandidateFilterResult {
+export function filterCandidates(candidates: MotionCandidate[], frameArea: number, parallax?: ParallaxContext): CandidateFilterResult {
     const accepted: MotionCandidate[] = [];
     const rejected: { candidate: MotionCandidate; reason: RejectionReason }[] = [];
 
     for (const candidate of candidates) {
-        const reason = rejectionReason(candidate, frameArea);
+        const reason = rejectionReason(candidate, frameArea, parallax);
         if (reason) rejected.push({ candidate, reason });
         else accepted.push(candidate);
     }
@@ -77,7 +95,7 @@ export function filterCandidates(candidates: MotionCandidate[], frameArea: numbe
     return { accepted, rejected };
 }
 
-function rejectionReason(candidate: MotionCandidate, frameArea: number): RejectionReason | null {
+function rejectionReason(candidate: MotionCandidate, frameArea: number, parallax?: ParallaxContext): RejectionReason | null {
     const config = candidate.path === "small" ? SMALL_PATH : NORMAL_PATH;
 
     if (candidate.persistence < config.minPersistence) return "insufficient-persistence";
@@ -103,5 +121,61 @@ function rejectionReason(candidate: MotionCandidate, frameArea: number): Rejecti
         }
     }
 
+    if (parallax?.globalMotion.parallaxDetected && isParallaxBackgroundResidual(candidate, parallax)) {
+        return "parallax-background";
+    }
+
     return null;
+}
+
+/**
+ * Only invoked when GlobalMotion.parallaxDetected is already true for
+ * this frame (i.e. the global model has already been judged an
+ * incomplete explanation somewhere in the frame — see
+ * GlobalMotionEstimator's module doc). Rejects a candidate as background/
+ * parallax residue, rather than an independent object, when its own
+ * recent displacement matches its quadrant's leftover (post-global-
+ * compensation) residual motion closely — i.e. it's moving the way
+ * uncompensated depth-layer background moves here, not some other way.
+ *
+ * This is a direct measurement, not a shape heuristic: an earlier version
+ * of this gate additionally required a spatially-extended/irregular shape
+ * (low compactness or high elongation), reasoning that a real object's
+ * silhouette should look different from "background residue". Synthetic
+ * testing of a genuinely textured, richly-detailed background layer
+ * shifting rigidly under incomplete compensation (see
+ * scripts/detectorScenarios.ts's depth-layer scenarios) showed that
+ * assumption doesn't hold: a textured region's frame-difference naturally
+ * fragments into many small, locally COMPACT-looking blobs — the same
+ * shape a small real object would have — so shape alone couldn't tell
+ * them apart, and requiring it left exactly the kind of background flood
+ * this gate exists to prevent. The displacement-match against the
+ * region's own measured residual is intrinsically what distinguishes
+ * background residue from an independent object: an object moving
+ * differently from its local depth layer won't match, regardless of its
+ * shape. The tradeoff (kept deliberately tight via
+ * PARALLAX_DISPLACEMENT_MATCH_PX, and only engaged at all when this
+ * frame's parallax has already been positively identified) is that a
+ * real independent object which happens to be moving at very close to
+ * the same velocity as its local uncompensated depth-layer residual could
+ * be suppressed — an inherent ambiguity in any detection-only (pre-
+ * semantic) approach, not a defect specific to this gate.
+ */
+function isParallaxBackgroundResidual(candidate: MotionCandidate, parallax: ParallaxContext): boolean {
+    if (candidate.displacementX === null || candidate.displacementY === null) return false;
+
+    const cell = regionalCellFor(candidate.centerX, candidate.centerY, parallax);
+    if (!cell || !cell.coherent) return false;
+
+    const residualMagnitude = Math.hypot(cell.dx, cell.dy);
+    if (residualMagnitude < PARALLAX_MIN_RESIDUAL_PX) return false;
+
+    return Math.hypot(candidate.displacementX - cell.dx, candidate.displacementY - cell.dy) <= PARALLAX_DISPLACEMENT_MATCH_PX;
+}
+
+function regionalCellFor(centerX: number, centerY: number, parallax: ParallaxContext): RegionalMotionCell | undefined {
+    const gridSize = Math.sqrt(parallax.globalMotion.regionalMotion.length) || 1;
+    const col = Math.min(gridSize - 1, Math.floor((centerX / parallax.width) * gridSize));
+    const row = Math.min(gridSize - 1, Math.floor((centerY / parallax.height) * gridSize));
+    return parallax.globalMotion.regionalMotion.find((cell) => cell.row === row && cell.col === col);
 }

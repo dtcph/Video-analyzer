@@ -1,5 +1,6 @@
 import type { DetectorDebugInfo, FrameAnalysis } from "../analysis/AnalysisTypes";
 import { ExposureMaskBit } from "../analysis/AnalysisTypes";
+import type { RegionalMotionCell } from "../analysis/GlobalMotionEstimator";
 
 export interface AnalysisVisibility {
   clip: boolean;
@@ -238,13 +239,62 @@ export class AnalysisOverlay {
       this.ctx.save();
       this.ctx.font = "bold 11px monospace";
       this.ctx.fillStyle = DEBUG_HUD_COLOR;
-      this.ctx.fillText(
+      const lines = [
         `camera dx ${motion.dx.toFixed(1)}px dy ${motion.dy.toFixed(1)}px conf ${motion.confidence.toFixed(2)} ${motion.valid ? "(compensating)" : "(not compensating)"}`,
-        canvas.width - DEBUG_THUMB_WIDTH - 8,
-        y + 4,
-      );
+        `model ${motion.model} | inliers ${(motion.inlierRatio * 100).toFixed(0)}% | residual ${motion.residualError.toFixed(2)}px | parallax ${motion.parallaxDetected ? "YES" : "no"}`
+      ];
+      let textY = y + 4;
+      for (const line of lines) {
+        this.ctx.fillText(line, canvas.width - DEBUG_THUMB_WIDTH - 8, textY);
+        textY += 14;
+      }
       this.ctx.restore();
+
+      this.renderRegionalMotionField(motion.regionalMotion, width, height);
     }
+  }
+
+  /**
+   * Draws each RegionalMotionCell's residual displacement as a small
+   * arrow at its cell's own center on the main canvas — the ASCII
+   * "motion field" the debug spec asked for, made concrete: this is
+   * where a genuine parallax/depth-layer residual (arrows of visibly
+   * different length/direction across cells) is visually distinguished
+   * from ordinary noise (short, inconsistent arrows) or a clean single
+   * camera motion (all near-zero, since the global model already
+   * explains it). Non-coherent cells (too few samples, or too much
+   * internal disagreement to trust — see GlobalMotionEstimator) are
+   * drawn faint/dashed rather than omitted, so their absence of evidence
+   * is itself visible instead of silently blank.
+   */
+  private renderRegionalMotionField(cells: RegionalMotionCell[], debugWidth: number, debugHeight: number): void {
+    if (cells.length === 0) return;
+    const { canvas } = this.ctx;
+    const gridSize = Math.round(Math.sqrt(cells.length));
+    const scale = 6; // exaggerate for legibility, same convention as blob/track velocity vectors elsewhere
+
+    this.ctx.save();
+    for (const cell of cells) {
+      const cx = ((cell.col + 0.5) / gridSize) * debugWidth * (canvas.width / debugWidth);
+      const cy = ((cell.row + 0.5) / gridSize) * debugHeight * (canvas.height / debugHeight);
+      const dx = cell.dx * scale;
+      const dy = cell.dy * scale;
+
+      this.ctx.strokeStyle = cell.coherent ? "rgba(255, 100, 220, 0.85)" : "rgba(255, 100, 220, 0.3)";
+      this.ctx.fillStyle = this.ctx.strokeStyle;
+      this.ctx.lineWidth = cell.coherent ? 2 : 1;
+      if (!cell.coherent) this.ctx.setLineDash([3, 3]);
+      else this.ctx.setLineDash([]);
+
+      this.ctx.beginPath();
+      this.ctx.arc(cx, cy, 3, 0, Math.PI * 2);
+      this.ctx.fill();
+      this.ctx.beginPath();
+      this.ctx.moveTo(cx, cy);
+      this.ctx.lineTo(cx + dx, cy + dy);
+      this.ctx.stroke();
+    }
+    this.ctx.restore();
   }
 
   /** Renders one grayscale (0..255 per pixel) buffer as a labeled thumbnail at (x, y). */

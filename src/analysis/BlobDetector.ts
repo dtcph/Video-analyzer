@@ -61,28 +61,47 @@ async function loadCv(): Promise<OpenCv> {
  * backwards: with a static camera, only content that actually changes
  * between frames should surface as a blob at all.
  *
- * Camera panning is compensated before diffing (see
- * GlobalMotionEstimator) rather than left entirely to the tracking
- * layer: without it, a pan makes the whole frame read as "motion",
- * which is exactly the failure this detector exists to avoid. The
- * compensation is applied only when the estimate's own confidence says
+ * Camera motion is compensated before diffing (see GlobalMotionEstimator)
+ * rather than left entirely to the tracking layer: without it, a pan
+ * makes the whole frame read as "motion", which is exactly the failure
+ * this detector exists to avoid. Compensation is a robust TRANSLATION
+ * only (not a full affine/homography — see GlobalMotionEstimator's module
+ * doc for why an unconstrained richer model was tried and rejected for
+ * this purpose), applied only when the estimate's own confidence says
  * it's trustworthy (AnalysisSettings.cameraCompensationEnabled gates
  * whether it's attempted at all) — an uncertain or wrong global-motion
  * guess is worse than none, so the fallback on low confidence is the
- * plain uncompensated diff, same as before this existed. This is
- * unrelated to, and doesn't replace, BlobTracker's own
- * CameraMotionEstimator downstream, which works from already-tracked
- * blob velocities for a different purpose (predicting where a track
- * should be next) — this one exists purely to keep detection itself
- * spatially meaningful.
+ * plain uncompensated diff. This is unrelated to, and doesn't replace,
+ * BlobTracker's own CameraMotionEstimator downstream, which works from
+ * already-tracked blob velocities for a different purpose (predicting
+ * where a track should be next) — this one exists purely to keep
+ * detection itself spatially meaningful.
+ *
+ * Real 3D camera translation (a drone moving forward, a vehicle-mounted
+ * camera moving through a street) breaks the "one global translation"
+ * assumption via parallax: near and far scene content shift by different
+ * amounts for the same camera motion, so no single 2D transform is
+ * exactly right everywhere. Rather than chase this with a richer pixel-
+ * level warp (dense optical flow, or per-region re-warping — both
+ * explicitly avoided as excessive for a real-time browser pipeline), the
+ * SAME sparse correspondences already gathered for the global fit are
+ * also bucketed into a coarse 2x2 spatial grid to check whether one part
+ * of the frame has a coherent leftover motion the global translation
+ * doesn't explain (GlobalMotion.parallaxDetected/regionalMotion). When
+ * that's true, MotionCandidateFilter gets this as extra context: a
+ * candidate whose own measured displacement matches its quadrant's
+ * uncompensated residual gets rejected as background/parallax residue
+ * rather than an independent object, on the same "measurable properties,
+ * not hardcoded assumptions" principle as its other gates.
  *
  * Beyond the threshold mask, every connected region is measured as a
  * MotionCandidate (density, shape, and — via MotionPersistenceTracker —
  * how long it's persisted and how consistent its direction has been)
  * and only the candidates MotionCandidateFilter actually accepts become
  * a BlobData the tracker sees at all. This is what keeps a single stray
- * frame of compression noise, a flickering camera-compensation edge, or
- * wind-shaken foliage from becoming a blob just because it crossed the
+ * frame of compression noise, a flickering camera-compensation edge,
+ * wind-shaken foliage, or (per the parallax gate above) an unexplained
+ * camera-motion residual from becoming a blob just because it crossed the
  * motion threshold once — see MotionCandidateFilter's module doc for the
  * actual gates. It's also why there are two detection passes
  * (AnalysisSettings.smallObjectDetectionEnabled): a small, distant
@@ -163,7 +182,7 @@ export class BlobDetector {
             }
 
             const globalMotion: GlobalMotion = settings.cameraCompensationEnabled
-                ? estimateGlobalMotion(cv, previous, gray, width, height)
+                ? estimateGlobalMotion(cv, previous, gray, width, height, settings.detectorDebugEnabled)
                 : NO_GLOBAL_MOTION;
 
             let diffSource: CvMat = previous;
@@ -224,7 +243,7 @@ export class BlobDetector {
             }
 
             const allCandidates = this.persistenceTracker.update([...normalCandidates, ...smallCandidates]);
-            const { accepted, rejected } = filterCandidates(allCandidates, frameArea);
+            const { accepted, rejected } = filterCandidates(allCandidates, frameArea, { globalMotion, width, height });
 
             const blobs = accepted.map((candidate, index) => toBlobData(candidate, index + 1, width, height));
 
