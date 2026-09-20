@@ -13,6 +13,23 @@ export interface BlobData {
     centerY: number;
 
     area: number;
+
+    /**
+     * Optional detection-level hints from BlobDetector's motion-candidate
+     * pipeline (see MotionCandidate) — a lightweight, pre-tracking signal,
+     * not a replacement for anything Track itself computes.
+     * `persistence` is how many consecutive analyzed frames a spatially
+     * coherent region was seen for before this detection (>=1); `motionDx`/
+     * `motionDy` are that same frame-to-frame centroid displacement,
+     * normalized 0..1 like every other spatial field here. Undefined
+     * unless BlobDetector populated them (currently always does once
+     * motion-candidate filtering is active). BlobTracker does not
+     * currently consume these — they're exposed for inspection/future use,
+     * not wired into association scoring.
+     */
+    persistence?: number;
+    motionDx?: number;
+    motionDy?: number;
 }
 
 export interface TrackPoint {

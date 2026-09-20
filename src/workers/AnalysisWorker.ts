@@ -43,7 +43,15 @@ async function processFrame(frame: CapturedFrame, frameNumber: number, timestamp
     const processingTimeMs = performance.now() - start;
 
     const response: WorkerResponse = { type: "FRAME_ANALYZED", result, processingTimeMs };
-    self.postMessage(response, [result.exposureMask.buffer]);
+    const transfer: Transferable[] = [result.exposureMask.buffer];
+    if (result.detectorDebug) {
+        transfer.push(
+            result.detectorDebug.rawDiff.buffer,
+            result.detectorDebug.compensatedDiff.buffer,
+            result.detectorDebug.motionMask.buffer
+        );
+    }
+    self.postMessage(response, transfer);
 }
 
 self.onmessage = (event: MessageEvent<WorkerRequest>) => {
@@ -52,6 +60,7 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
     switch (message.type) {
         case "START_ANALYSIS":
             engine.updateSettings(message.settings);
+            engine.reset();
             isAnalyzing = true;
             break;
 

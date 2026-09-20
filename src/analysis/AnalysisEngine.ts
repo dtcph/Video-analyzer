@@ -16,13 +16,32 @@ export class AnalysisEngine {
         this.settings = { ...this.settings, ...partial };
     }
 
+    /** Restores every setting to its shipped default — used by the header reset button, distinct from clearing track/annotation data. */
+    resetSettings(): void {
+        this.settings = { ...DEFAULT_ANALYSIS_SETTINGS };
+    }
+
+    /** Drops any per-video detector state (BlobDetector's remembered previous frame) — call whenever analysis starts on a (possibly new) video, so the first frame's motion diff is never computed against a leftover frame from a different clip. */
+    reset(): void {
+        this.detector.reset();
+    }
+
     getSettings(): AnalysisSettings {
         return this.settings;
     }
 
     async analyzeFrame(frame: number, timestamp: number, imageData: ImageData): Promise<FrameAnalysis> {
-        const blobs = await this.detector.detect(imageData, this.settings);
+        const { blobs, debug } = await this.detector.detect(imageData, this.settings);
         const { data: exposure, mask: exposureMask } = ExposureAnalyzer.analyze(imageData, this.settings);
-        return { frame, timestamp, width: imageData.width, height: imageData.height, blobs, exposure, exposureMask };
+        return {
+            frame,
+            timestamp,
+            width: imageData.width,
+            height: imageData.height,
+            blobs,
+            exposure,
+            exposureMask,
+            detectorDebug: debug
+        };
     }
 }

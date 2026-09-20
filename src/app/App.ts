@@ -174,6 +174,7 @@ export class App {
       this.renderer.setLatestFrameResult(result);
       this.analysisControls.updateExposureStats(result.exposure);
       this.analysisControls.updateBlobStats(result.blobs);
+      this.analysisControls.updateDetectorDebug(result.detectorDebug);
     });
 
     this.state.analysisWorkerClient.onStatsUpdate((stats) => {
@@ -335,6 +336,19 @@ export class App {
     this.state.analysisWorkerClient.stop();
     this.state.reset();
     this.selectTrack(null);
+
+    // Reset isn't just "clear the loaded video" — every analysis/tracking
+    // setting a user has dragged away from its default should snap back
+    // too, both the underlying settings objects and the panels showing
+    // them, so a fresh video starts from a genuinely clean slate.
+    this.state.analysisEngine.resetSettings();
+    this.state.analysisWorkerClient.updateSettings(this.state.analysisEngine.getSettings());
+    this.state.blobTracker.resetSettings();
+    this.analysisControls.resetToDefaults();
+    this.trackingControls.resetToDefaults();
+    this.renderer.setLayerVisibility({ analysis: true, tracking: true, annotations: true });
+    this.renderer.setExposureVisibility({ clip: true, highlight: true, crushedBlacks: true, blobs: true });
+    this.renderer.setDebugMode(false);
 
     this.stageEl.classList.add("is-empty");
     this.stageEl.style.aspectRatio = "";

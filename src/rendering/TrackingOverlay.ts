@@ -5,6 +5,10 @@ const DEBUG_PREDICTED_COLOR = "rgb(255, 210, 0)";
 const DEBUG_GATE_COLOR = "rgba(255, 210, 0, 0.35)";
 const DEBUG_VELOCITY_COLOR = "rgb(0, 180, 255)";
 const DEBUG_CAMERA_COLOR = "rgb(255, 100, 220)";
+const DEBUG_REID_COLOR = "rgb(140, 255, 60)";
+
+/** How many frames after a "reidentified" event its marker keeps showing on the overlay — long enough to actually notice while scrubbing/playing, short enough to still read as "just happened" rather than a permanent badge. */
+const REID_MARKER_FRAMES = 15;
 
 const ACTIVE_COLOR = "rgb(0, 255, 180)";
 const LOST_COLOR = "rgb(255, 80, 80)";
@@ -136,7 +140,7 @@ export class TrackingOverlay {
       );
       this.ctx.restore();
 
-      if (debug) this.renderDebugTrack(track, x, y, canvas.width, canvas.height);
+      if (debug) this.renderDebugTrack(track, x, y, canvas.width, canvas.height, frame);
     }
 
     this.ctx.globalAlpha = 1;
@@ -155,7 +159,7 @@ export class TrackingOverlay {
    * so this stays rendering-only code with no dependency on the
    * tracking/analysis modules that computed them.
    */
-  private renderDebugTrack(track: Track, actualX: number, actualY: number, width: number, height: number): void {
+  private renderDebugTrack(track: Track, actualX: number, actualY: number, width: number, height: number, currentFrame: number): void {
     const px = track.predictedPosition.x * width;
     const py = track.predictedPosition.y * height;
 
@@ -207,7 +211,27 @@ export class TrackingOverlay {
       actualY + 16,
     );
 
+    const reidFrame = this.mostRecentEventFrame(track, "reidentified");
+    if (reidFrame !== null && currentFrame - reidFrame <= REID_MARKER_FRAMES && currentFrame - reidFrame >= 0) {
+      this.ctx.strokeStyle = DEBUG_REID_COLOR;
+      this.ctx.lineWidth = 2;
+      this.ctx.beginPath();
+      this.ctx.arc(actualX, actualY, 14, 0, Math.PI * 2);
+      this.ctx.stroke();
+      this.ctx.font = "bold 10px monospace";
+      this.ctx.fillStyle = DEBUG_REID_COLOR;
+      this.ctx.fillText("REIDENTIFIED", actualX + 8, actualY + 28);
+    }
+
     this.ctx.restore();
+  }
+
+  /** Frame of the most recent event of the given type on this track, or null if none — used to time-limit one-off debug markers (see REID_MARKER_FRAMES). */
+  private mostRecentEventFrame(track: Track, type: string): number | null {
+    for (let i = track.events.length - 1; i >= 0; i--) {
+      if (track.events[i].type === type) return track.events[i].frame;
+    }
+    return null;
   }
 
   /** Fixed-position readout of the current camera-motion estimate — see CameraMotionEstimate. */

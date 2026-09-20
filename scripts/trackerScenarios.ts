@@ -17,6 +17,7 @@ import assert from "node:assert/strict";
 import { TrackManager } from "../src/tracking/TrackManager.ts";
 import { BlobTracker } from "../src/analysis/BlobTracker.ts";
 import { solveAssignment } from "../src/tracking/AssignmentSolver.ts";
+import { DEFAULT_TRACKING_SETTINGS } from "../src/tracking/TrackTypes.ts";
 import type { BlobData } from "../src/tracking/TrackTypes.ts";
 
 let passed = 0;
@@ -204,6 +205,123 @@ test("an established track ignores a nearby but unrelated large blob", () => {
     assert.ok(track);
     const latest = track.blobs[track.blobs.length - 1];
     assert.ok(latest.width < 0.1, `track jumped to the large unrelated blob (width ${latest.width})`);
+});
+
+// ---------------------------------------------------------------------------
+// Test 10 — merge/occlusion: two distinct blobs approach, become
+// indistinguishable from one detector output for several frames (as if
+// occluding one another), then separate again. This is NOT the same as
+// test 3 (a blob vanishing to zero detections) — here the detector keeps
+// emitting exactly one blob throughout the "merged" stretch. There is no
+// dedicated merge/split algorithm (see README "Limitations") — this
+// checks whether plain lost -> reidentify is actually adequate for it.
+// ---------------------------------------------------------------------------
+test("merge/occlusion: does plain lost->reidentify actually recover both identities?", () => {
+    const { trackManager, blobTracker } = setup();
+    let frame = 0;
+
+    // Two blobs, established but deliberately NOT fully "matured" (only
+    // 5 observations, below TRUST_MATURITY_POINTS=8 in Track.ts) so their
+    // search radius isn't tightened all the way down — closer to how a
+    // real track looks partway through a clip than an artificially
+    // perfectly-converged synthetic one. Kept well outside mergeDistance
+    // (0.06) so TrackManager's own duplicate-merge never fires here.
+    for (; frame < 5; frame++) {
+        blobTracker.update(frame, [blob(0, 0.38, 0.5, 0.05, 0.05), blob(1, 0.62, 0.5, 0.05, 0.05)]);
+    }
+    const idsBeforeMerge = trackManager.getAllTracks().map((t) => t.id);
+    assert.equal(idsBeforeMerge.length, 2, "expected two distinct tracks before the merge");
+
+    // Merged: the detector abruptly reports one wider blob at the
+    // midpoint for several frames, standing in for a real contour merge
+    // downstream of BlobDetector.
+    const mergeStart = frame;
+    for (; frame < mergeStart + 6; frame++) {
+        blobTracker.update(frame, [blob(2, 0.5, 0.5, 0.14, 0.05)]);
+    }
+    const duringMerge = trackManager.getAllTracks();
+    console.log(
+        `      [info] during merge: ${duringMerge.length} track(s), statuses ${JSON.stringify(duringMerge.map((t) => ({ id: t.id, status: t.status })))}`
+    );
+    // Documenting current behavior rather than asserting a fixed target
+    // here — see the README critique this scenario feeds into: whether
+    // the merged blob gets claimed by one of the two original tracks, or
+    // spawns a third "merged object" track while both originals go lost,
+    // materially changes what happens on separation below.
+
+    // Separate again: two blobs re-emerge apart from each other.
+    const separateStart = frame;
+    for (; frame < separateStart + 8; frame++) {
+        const t = frame - separateStart;
+        const cxA = 0.5 - t * 0.03;
+        const cxB = 0.5 + t * 0.03;
+        blobTracker.update(frame, [blob(3, cxA, 0.5, 0.05, 0.05), blob(4, cxB, 0.5, 0.05, 0.05)]);
+    }
+
+    const finalTracks = trackManager.getAllTracks();
+    console.log(
+        `      [info] after separating: ${finalTracks.length} track(s), ids ${JSON.stringify(idsBeforeMerge)} -> ${JSON.stringify(finalTracks.map((t) => t.id))}, statuses ${JSON.stringify(finalTracks.map((t) => t.status))}`
+    );
+    // Documenting current behavior rather than asserting a fixed target —
+    // the property that actually matters for downstream data/viz is
+    // exactly two objects' worth of track data existing afterward, not
+    // silently one (a lost identity) or three+ (a phantom extra track);
+    // see the printed result above/README critique for what actually
+    // happens.
+});
+
+// ---------------------------------------------------------------------------
+// Test 11a — gradual convergence (as opposed to an abrupt detector merge,
+// tested above): two genuinely distinct objects slowly approaching each
+// other. Documents whether TrackManager.mergeDuplicateActiveTracks (meant
+// for detection noise splitting ONE blob into two duplicate tracks) also
+// fires here, permanently collapsing two still-separate real objects into
+// one track before they've actually occluded each other in the detector.
+// ---------------------------------------------------------------------------
+test("gradual convergence: does mergeDuplicateActiveTracks fire on two still-distinct approaching objects?", () => {
+    const { trackManager, blobTracker } = setup();
+    let frame = 0;
+    for (; frame < 12; frame++) {
+        const cxA = 0.3 + frame * 0.02;
+        const cxB = 0.7 - frame * 0.02;
+        blobTracker.update(frame, [blob(0, cxA, 0.5, 0.05, 0.05), blob(1, cxB, 0.5, 0.05, 0.05)]);
+    }
+    const tracks = trackManager.getAllTracks();
+    console.log(
+        `      [info] gradual convergence result: ${tracks.length} track(s) after approaching to within ${(Math.abs((0.3 + 11 * 0.02) - (0.7 - 11 * 0.02)) * 100).toFixed(1)}% of frame width — mergeDistance is ${DEFAULT_TRACKING_SETTINGS.mergeDistance * 100}%`
+    );
+    // Documenting current behavior rather than asserting a fixed target —
+    // see the README critique this scenario feeds into. A collapse to 1
+    // track here (still two visually separate bounding boxes, never
+    // reported as a single detector blob) is the finding being surfaced.
+});
+
+// ---------------------------------------------------------------------------
+// Test 11 — camera-motion robustness: when a MAJORITY of visible blobs are
+// independently moving the same way (not the camera), does the estimator
+// still report high confidence, i.e. mistake coordinated object motion for
+// camera motion? The estimator only requires cameraMotionMinTracks (2)
+// tracks and a low spread among ALL matchable tracks — it does not check
+// what fraction of tracks agree with the majority, so a small minority of
+// stationary/independently-moving tracks can be outvoted.
+// ---------------------------------------------------------------------------
+test("camera-motion confidence when most tracks move independently together (adversarial case)", () => {
+    const { trackManager, blobTracker } = setup();
+    // 4 blobs moving right in lockstep (independent objects, e.g. a
+    // flock/crowd/school-of-fish scenario — NOT camera motion) + 1 truly
+    // stationary blob, which should be the tie-breaker telling the
+    // estimator "this isn't actually the camera".
+    let frame = 0;
+    for (; frame < 20; frame++) {
+        const moving = [0, 1, 2, 3].map((i) => blob(i, 0.1 + i * 0.15 + frame * 0.02, 0.2 + i * 0.15, 0.04, 0.04));
+        const stationary = blob(4, 0.5, 0.95, 0.04, 0.04);
+        blobTracker.update(frame, [...moving, stationary]);
+    }
+    const camera = blobTracker.getLastCameraMotion();
+    console.log(`      [info] adversarial camera-motion estimate: ${JSON.stringify(camera)}`);
+    assert.ok(camera, "expected a camera-motion estimate once enough tracks exist");
+    // This assertion documents current behavior rather than a fixed
+    // target — see the README critique this scenario feeds into.
 });
 
 // ---------------------------------------------------------------------------

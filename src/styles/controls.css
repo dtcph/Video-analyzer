@@ -144,6 +144,25 @@
     color: #ffa500;
 }
 
+.detector-debug-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 16px;
+    color: var(--text-dim);
+}
+
+.detector-debug-row label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+}
+
+.detector-debug-readout {
+    padding-top: 4px;
+    color: rgb(255, 100, 220);
+}
+
 .playback-controls {
     display: flex;
     gap: 10px;

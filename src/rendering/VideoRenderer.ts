@@ -27,7 +27,16 @@ export class VideoRenderer {
     private annotationRenderer: AnnotationRenderer;
 
     private visibility: LayerVisibility = { analysis: true, tracking: true, annotations: true };
-    private exposureVisibility: AnalysisVisibility = { clip: true, highlight: true, crushedBlacks: true, blobs: true };
+    private exposureVisibility: AnalysisVisibility = {
+        clip: true,
+        highlight: true,
+        crushedBlacks: true,
+        blobs: true,
+        rawDiff: false,
+        compensatedDiff: false,
+        motionMask: false,
+        rejectedCandidates: false
+    };
     private rafHandle: number | null = null;
     private latestFrameResult: FrameAnalysis | null = null;
     private selectedTrackId: number | null = null;

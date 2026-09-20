@@ -1,4 +1,4 @@
-import type { FrameAnalysis } from "../analysis/AnalysisTypes";
+import type { DetectorDebugInfo, FrameAnalysis } from "../analysis/AnalysisTypes";
 import { ExposureMaskBit } from "../analysis/AnalysisTypes";
 
 export interface AnalysisVisibility {
@@ -6,12 +6,20 @@ export interface AnalysisVisibility {
   highlight: boolean;
   crushedBlacks: boolean;
   blobs: boolean;
+  /** Detector-debug channels (see DetectorDebugInfo) — each independently toggleable, drawn as small thumbnails regardless of the others so they can be compared side by side. Only draw anything when FrameAnalysis.detectorDebug is actually present (AnalysisSettings.detectorDebugEnabled on). */
+  rawDiff: boolean;
+  compensatedDiff: boolean;
+  motionMask: boolean;
+  /** Draws MotionCandidateFilter's rejected candidates (dim, with their rejection reason) — explicitly opt-in and separate from the other debug channels, since seeing *why* the detector didn't produce a blob somewhere is a deeper debugging need than the usual "what did it produce" view. */
+  rejectedCandidates: boolean;
 }
 
 const CLIP_COLOR = [255, 60, 60, 170] as const;
 const HIGHLIGHT_COLOR = [255, 220, 0, 130] as const;
 const CRUSHED_COLOR = [70, 100, 255, 140] as const;
 const BLOB_COLOR = "rgba(255, 165, 0, 0.9)";
+const DEBUG_THUMB_WIDTH = 160;
+const DEBUG_HUD_COLOR = "rgb(255, 100, 220)";
 
 /**
  * Draws per-pixel exposure-analysis feedback (RGB clipping, luminance
@@ -29,6 +37,8 @@ const BLOB_COLOR = "rgba(255, 165, 0, 0.9)";
 export class AnalysisOverlay {
   private readonly maskCanvas = document.createElement("canvas");
   private readonly maskCtx: CanvasRenderingContext2D;
+  private readonly debugCanvas = document.createElement("canvas");
+  private readonly debugCtx: CanvasRenderingContext2D;
 
   constructor(private readonly ctx: CanvasRenderingContext2D) {
     const maskCtx = this.maskCanvas.getContext("2d");
@@ -37,6 +47,13 @@ export class AnalysisOverlay {
         "AnalysisOverlay: could not acquire 2D context for mask canvas",
       );
     this.maskCtx = maskCtx;
+
+    const debugCtx = this.debugCanvas.getContext("2d");
+    if (!debugCtx)
+      throw new Error(
+        "AnalysisOverlay: could not acquire 2D context for debug canvas",
+      );
+    this.debugCtx = debugCtx;
   }
 
   clear(): void {
@@ -53,7 +70,12 @@ export class AnalysisOverlay {
     }
 
     if (visibility.blobs) {
-      this.renderBlobs(result);
+      this.renderBlobs(result, Boolean(result.detectorDebug));
+    }
+
+    if (result.detectorDebug) {
+      if (visibility.rejectedCandidates) this.renderRejectedCandidates(result.detectorDebug);
+      this.renderDetectorDebug(result.detectorDebug, visibility);
     }
   }
 
@@ -101,7 +123,15 @@ export class AnalysisOverlay {
     );
   }
 
-  private renderBlobs(result: FrameAnalysis): void {
+  /**
+   * `showMotionDebug` adds a persistence count and a direction arrow
+   * (from BlobData.persistence/motionDx/motionDy — see MotionCandidate)
+   * next to each blob's label, only when AnalysisSettings.detectorDebugEnabled
+   * is on: this is detection-level debug information (how many frames a
+   * candidate has held together, which way it's been moving), not part
+   * of the normal "here are this frame's blobs" view.
+   */
+  private renderBlobs(result: FrameAnalysis, showMotionDebug: boolean): void {
     const { canvas } = this.ctx;
 
     for (const blob of result.blobs) {
@@ -128,7 +158,125 @@ export class AnalysisOverlay {
         x,
         y + h + 18,
       );
+
+      if (showMotionDebug && blob.persistence !== undefined) {
+        this.ctx.font = "11px monospace";
+        this.ctx.fillText(`persist ${blob.persistence}`, x, y + h + 34);
+
+        if (blob.motionDx !== undefined && blob.motionDy !== undefined) {
+          const scale = 8; // exaggerate for legibility, same convention as TrackingOverlay's velocity vector
+          const dx = blob.motionDx * canvas.width * scale;
+          const dy = blob.motionDy * canvas.height * scale;
+          this.ctx.strokeStyle = DEBUG_HUD_COLOR;
+          this.ctx.lineWidth = 2;
+          this.ctx.beginPath();
+          this.ctx.moveTo(cx, cy);
+          this.ctx.lineTo(cx + dx, cy + dy);
+          this.ctx.stroke();
+        }
+      }
+
       this.ctx.restore();
     }
+  }
+
+  /** Draws every candidate MotionCandidateFilter rejected this frame — dim, labeled with its rejection reason, and deliberately visually de-emphasized relative to accepted blobs since this is a "why not" view, opt-in via AnalysisVisibility.rejectedCandidates. */
+  private renderRejectedCandidates(debug: DetectorDebugInfo): void {
+    const { canvas } = this.ctx;
+    this.ctx.save();
+    this.ctx.strokeStyle = "rgba(255, 80, 80, 0.5)";
+    this.ctx.fillStyle = "rgba(255, 80, 80, 0.85)";
+    this.ctx.lineWidth = 1.5;
+    this.ctx.font = "10px monospace";
+    this.ctx.setLineDash([3, 2]);
+
+    for (const candidate of debug.rejectedCandidates) {
+      const x = candidate.x * canvas.width;
+      const y = candidate.y * canvas.height;
+      const w = candidate.width * canvas.width;
+      const h = candidate.height * canvas.height;
+      this.ctx.strokeRect(x, y, w, h);
+      this.ctx.fillText(candidate.reason ?? "rejected", x, y - 3);
+    }
+
+    this.ctx.restore();
+  }
+
+  /**
+   * Draws whichever detector-debug channels are toggled on as small
+   * grayscale thumbnails stacked in the top-right corner, plus a text
+   * HUD for the global-motion vector/confidence — lets a user see
+   * exactly where in the pipeline (diff -> camera compensation ->
+   * threshold+morphology -> contours) a given frame's blobs came from,
+   * each channel independently toggleable rather than one all-or-nothing
+   * debug mode. Thumbnails, not full-canvas overlays, so they don't
+   * obscure the main blob/exposure view they're meant to explain.
+   */
+  private renderDetectorDebug(debug: DetectorDebugInfo, visibility: AnalysisVisibility): void {
+    const { canvas } = this.ctx;
+    const { width, height } = debug;
+    const thumbHeight = Math.round((DEBUG_THUMB_WIDTH * height) / width);
+
+    this.debugCanvas.width = width;
+    this.debugCanvas.height = height;
+
+    const channels: { label: string; data: Uint8Array; show: boolean }[] = [
+      { label: "RAW DIFF", data: debug.rawDiff, show: visibility.rawDiff },
+      { label: "COMPENSATED DIFF", data: debug.compensatedDiff, show: visibility.compensatedDiff },
+      { label: "MOTION MASK", data: debug.motionMask, show: visibility.motionMask }
+    ];
+
+    let y = 8;
+    for (const channel of channels) {
+      if (!channel.show) continue;
+      this.drawGrayscaleThumbnail(channel.data, width, height, canvas.width - DEBUG_THUMB_WIDTH - 8, y, thumbHeight, channel.label);
+      y += thumbHeight + 22;
+    }
+
+    const motion = debug.globalMotion;
+    if (visibility.rawDiff || visibility.compensatedDiff || visibility.motionMask) {
+      this.ctx.save();
+      this.ctx.font = "bold 11px monospace";
+      this.ctx.fillStyle = DEBUG_HUD_COLOR;
+      this.ctx.fillText(
+        `camera dx ${motion.dx.toFixed(1)}px dy ${motion.dy.toFixed(1)}px conf ${motion.confidence.toFixed(2)} ${motion.valid ? "(compensating)" : "(not compensating)"}`,
+        canvas.width - DEBUG_THUMB_WIDTH - 8,
+        y + 4,
+      );
+      this.ctx.restore();
+    }
+  }
+
+  /** Renders one grayscale (0..255 per pixel) buffer as a labeled thumbnail at (x, y). */
+  private drawGrayscaleThumbnail(
+    data: Uint8Array,
+    srcWidth: number,
+    srcHeight: number,
+    x: number,
+    y: number,
+    thumbHeight: number,
+    label: string,
+  ): void {
+    const image = this.debugCtx.createImageData(srcWidth, srcHeight);
+    for (let p = 0; p < data.length; p++) {
+      const v = data[p];
+      const o = p * 4;
+      image.data[o] = v;
+      image.data[o + 1] = v;
+      image.data[o + 2] = v;
+      image.data[o + 3] = 255;
+    }
+    this.debugCtx.putImageData(image, 0, 0);
+
+    this.ctx.save();
+    this.ctx.imageSmoothingEnabled = false;
+    this.ctx.drawImage(this.debugCanvas, 0, 0, srcWidth, srcHeight, x, y, DEBUG_THUMB_WIDTH, thumbHeight);
+    this.ctx.strokeStyle = "rgba(255, 255, 255, 0.4)";
+    this.ctx.lineWidth = 1;
+    this.ctx.strokeRect(x, y, DEBUG_THUMB_WIDTH, thumbHeight);
+    this.ctx.font = "bold 10px monospace";
+    this.ctx.fillStyle = DEBUG_HUD_COLOR;
+    this.ctx.fillText(label, x, y + thumbHeight + 12);
+    this.ctx.restore();
   }
 }

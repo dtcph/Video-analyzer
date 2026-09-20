@@ -144,4 +144,31 @@ export class TrackingControls {
     setOpen(open: boolean): void {
         this.collapsible.setOpen(open);
     }
+
+    /**
+     * Resets every widget in this panel to its shipped default —
+     * threshold/weight sliders back to DEFAULT_TRACKING_SETTINGS, both
+     * debug toggles back off. Only touches the DOM and the debug
+     * toggles' own side effects (trackerLogger, App's debug-view
+     * handler); App owns pushing the corresponding default settings
+     * into BlobTracker.
+     */
+    resetToDefaults(): void {
+        this.element.querySelectorAll<HTMLInputElement>("input[data-tracking]").forEach((input) => {
+            const key = input.dataset.tracking as keyof TrackingSettings;
+            input.value = String(DEFAULT_TRACKING_SETTINGS[key]);
+        });
+
+        const viewToggle = this.element.querySelector<HTMLInputElement>('input[data-debug="view"]');
+        if (viewToggle && viewToggle.checked) {
+            viewToggle.checked = false;
+            viewToggle.dispatchEvent(new Event("change"));
+        }
+
+        const logToggle = this.element.querySelector<HTMLInputElement>('input[data-debug="log"]');
+        if (logToggle && logToggle.checked) {
+            logToggle.checked = false;
+            logToggle.dispatchEvent(new Event("change"));
+        }
+    }
 }

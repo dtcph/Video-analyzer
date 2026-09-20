@@ -31,10 +31,18 @@ import type { CameraMotionEstimate } from "../tracking/TrackTypes";
  * unreasonably strict, or mispredicted, for every track the instant the
  * camera itself pans or shakes.
  */
+/** One frame's camera-motion estimate, kept for later inspection/visualization — see BlobTracker.getCameraMotionHistory. */
+export interface CameraMotionSample {
+    frame: number;
+    motion: CameraMotionEstimate;
+}
+
 export class BlobTracker {
     private settings: TrackingSettings = DEFAULT_TRACKING_SETTINGS;
     private readonly motionEstimator = new CameraMotionEstimator();
     private lastCameraMotion: CameraMotionEstimate | null = null;
+    /** Every frame's camera-motion estimate in order — unlike lastCameraMotion (a live HUD readout), this survives after the fact so camera compensation can be charted/inspected alongside track data once a video has finished analyzing. Never trimmed: at typical sample rates (see FrameSampler, default 12fps) even a long video is a few thousand small entries. */
+    private cameraMotionHistory: CameraMotionSample[] = [];
 
     constructor(
         private readonly trackManager: TrackManager,
@@ -52,21 +60,34 @@ export class BlobTracker {
         return this.settings;
     }
 
+    /** Restores every tracking setting to its shipped default — used by the header reset button, distinct from clearing track/camera-motion data (see reset()). A full replace, not a partial merge, so no stale value survives. */
+    resetSettings(): void {
+        this.settings = { ...DEFAULT_TRACKING_SETTINGS };
+        this.trackManager.updateSettings(this.settings);
+    }
+
     /** This frame's global-motion estimate (see CameraMotionEstimator), for the debug HUD — null before the first analyzed frame. */
     getLastCameraMotion(): CameraMotionEstimate | null {
         return this.lastCameraMotion;
+    }
+
+    /** The full per-frame camera-motion record for this analysis run, in frame order — for post-hoc visualization (e.g. a camera-compensation track alongside the timeline), not just the live HUD value. */
+    getCameraMotionHistory(): readonly CameraMotionSample[] {
+        return this.cameraMotionHistory;
     }
 
     /** Drops accumulated camera-motion history — call when starting a new video, since a running baseline from the previous clip has nothing to do with this one. */
     reset(): void {
         this.motionEstimator.reset();
         this.lastCameraMotion = null;
+        this.cameraMotionHistory = [];
     }
 
     update(frame: number, blobs: BlobData[]): void {
         const matchableTracks = this.trackManager.getMatchableTracks();
         const camera = this.motionEstimator.estimate(matchableTracks, this.settings);
         this.lastCameraMotion = camera;
+        this.cameraMotionHistory.push({ frame, motion: camera });
 
         // Recorded on each track itself (not just used locally) so debug
         // visualization and Inspector can show what the tracker expected
