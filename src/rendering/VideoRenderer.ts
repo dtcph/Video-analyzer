@@ -35,7 +35,8 @@ export class VideoRenderer {
         rawDiff: false,
         compensatedDiff: false,
         motionMask: false,
-        rejectedCandidates: false
+        rejectedCandidates: false,
+        sparseFlow: false
     };
     private rafHandle: number | null = null;
     private latestFrameResult: FrameAnalysis | null = null;

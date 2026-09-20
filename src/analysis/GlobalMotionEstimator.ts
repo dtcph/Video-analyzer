@@ -1,4 +1,16 @@
 import type { OpenCv, CvMat } from "./BlobDetector";
+import {
+    fitTranslationRansac,
+    fitAffineRansac,
+    residualOfTranslation,
+    residualOfAffine,
+    computeRegionalResiduals,
+    isMeaningfullyBetterFit,
+    mean,
+    type Correspondence,
+    type RegionalMotionCell
+} from "./MotionModelFit";
+import type { MotionVector } from "./SparseMotionEstimator";
 
 /** Runtime shape of cv.minMaxLoc's return value — see the call site for why this isn't taken from the vendored types. */
 interface MinMaxLocResult {
@@ -8,28 +20,7 @@ interface MinMaxLocResult {
     maxLoc: { x: number; y: number };
 }
 
-/**
- * One quadrant of the coarse 2x2 spatial breakdown of how well the fitted
- * global model explains motion in that part of the frame. `dx`/`dy` is
- * the mean RESIDUAL displacement (matched point minus what the global
- * model predicted) of the sample correspondences whose previous-frame
- * position fell in this quadrant — near zero means the global model
- * already explains this part of the frame well; a non-trivial, `coherent`
- * residual means this quadrant is moving in a way the single global
- * transform can't capture (the parallax/depth-layer case), which is
- * different from a quadrant with a large but incoherent (high-dispersion)
- * residual, which just means noisy/scattered correspondences there, not a
- * systematic layer.
- */
-export interface RegionalMotionCell {
-    row: number;
-    col: number;
-    dx: number;
-    dy: number;
-    sampleCount: number;
-    /** True when the correspondences behind this cell agree with each other reasonably tightly — see PARALLAX_MAX_QUADRANT_DISPERSION_PX. A cell with too few samples or high internal disagreement is never `coherent`, and consumers should not treat its dx/dy as meaningful. */
-    coherent: boolean;
-}
+export type { RegionalMotionCell } from "./MotionModelFit";
 
 /**
  * This frame's estimate of global (camera) motion between two grayscale
@@ -76,7 +67,17 @@ export interface GlobalMotion {
      * model is worse than a reliable simple one, same principle as the
      * confidence gate below.
      */
-    model: "translation" | "affine";
+    /**
+     * "homography" and "field" are only ever reported by the motion-field
+     * path (see SceneMotionEstimator) — the legacy block-matching path
+     * only ever reports "translation" or "affine". "field" specifically
+     * means the residual varies coherently across enough of the regional
+     * grid that no single 2D transform (however rich) is a good summary —
+     * the genuine multi-depth-layer case — which is different from
+     * "homography" (one richer-but-still-single transform fit the data
+     * decisively better than translation/affine).
+     */
+    model: "translation" | "affine" | "homography" | "field";
     /** Fraction of sampled correspondences RANSAC accepted as consistent with the translation actually used for compensation — the direct "how much of the frame agrees with one camera motion" figure requested for the debug view. */
     inlierRatio: number;
     /** Mean reprojection error (px) of the RANSAC inliers against the translation actually used — near the RANSAC threshold at best fit; large only when even the "agreeing" set was a poor, likely spurious fit. */
@@ -95,8 +96,18 @@ export interface GlobalMotion {
      * every bit of post-compensation residual motion as a real blob.
      */
     parallaxDetected: boolean;
-    /** Coarse 2x2 breakdown backing `parallaxDetected` — see RegionalMotionCell. Always 4 cells (row/col in [0,1]), even when some are low-sample/incoherent. */
+    /** Regional breakdown backing `parallaxDetected` — see RegionalMotionCell. Always `gridRows * gridCols` cells, even when some are low-sample/incoherent. */
     regionalMotion: RegionalMotionCell[];
+    /** Dimensions of the `regionalMotion` grid — 2x2 for the legacy path, finer (e.g. 4 cols x 3 rows) for the motion-field path, which has far more correspondences to spread across cells. Consumers must read this rather than assume a square grid. */
+    gridRows: number;
+    gridCols: number;
+    /** The raw sparse optical-flow field this estimate was built from — populated only by the motion-field path (SceneMotionEstimator), undefined for the legacy block-matching path, purely for debug visualization (see AnalysisOverlay). */
+    vectors?: MotionVector[];
+    /** Per-vector RESIDUAL (observed flow minus the translation actually used for compensation) at each tracked feature's own location — the fine-grained sibling of `regionalMotion`'s per-cell average, for drawing the "where exactly does the single global model stop explaining the frame" picture rather than only its per-cell summary. Motion-field path only. */
+    residualVectors?: MotionVector[];
+    /** Sparse-flow diagnostics — undefined for the legacy path. */
+    featureCount?: number;
+    validCount?: number;
 }
 
 export const NO_GLOBAL_MOTION: GlobalMotion = {
@@ -109,7 +120,9 @@ export const NO_GLOBAL_MOTION: GlobalMotion = {
     inlierRatio: 0,
     residualError: 0,
     parallaxDetected: false,
-    regionalMotion: []
+    regionalMotion: [],
+    gridRows: 2,
+    gridCols: 2
 };
 
 // --- Tuning constants -------------------------------------------------
@@ -134,10 +147,6 @@ const MIN_MATCH_SCORE = 0.6;
 const MIN_CORRESPONDENCES = 6;
 /** Minimum RANSAC inliers for the fitted model to be trusted at all, mirroring the old MIN_AGREEING_PATCHES. */
 const MIN_INLIERS = 6;
-/** Max pixel reprojection error for a correspondence to count as a RANSAC inlier. */
-const RANSAC_REPROJ_THRESHOLD_PX = 3;
-const RANSAC_MAX_ITERS = 500;
-const RANSAC_CONFIDENCE = 0.99;
 /** Confidence bar a fitted model must clear before consumers should compensate with it at all. */
 const MIN_VALID_CONFIDENCE = 0.5;
 /** How much better (absolute inlier-ratio gain) the diagnostic affine fit must do over the translation actually used before the debug label reports "affine" instead of "translation" — see GlobalMotion.model for why this stays diagnostic-only. */
@@ -160,16 +169,6 @@ const PARALLAX_MAX_QUADRANT_DISPERSION_PX = 2;
 const PARALLAX_MIN_RESIDUAL_PX = 2.5;
 /** Above this inlier ratio, the global model is already explaining nearly everything — not worth flagging parallax even if one small coherent pocket of residual exists. */
 const PARALLAX_MAX_INLIER_RATIO = 0.9;
-
-interface Correspondence {
-    /** Previous-frame patch center. */
-    fromX: number;
-    fromY: number;
-    /** Matched location in the current frame. */
-    toX: number;
-    toY: number;
-    score: number;
-}
 
 /**
  * Estimates global (camera) motion between two grayscale frames.
@@ -245,7 +244,7 @@ export function estimateGlobalMotion(
 
     const matrix: [number, number, number, number, number, number] = [1, 0, translationFit.dx, 0, 1, translationFit.dy];
 
-    const residuals = correspondences.map((c) => residualOf(c, matrix));
+    const residuals = correspondences.map((c) => residualOfTranslation(c, translationFit.dx, translationFit.dy));
     const inlierResiduals = residuals.filter((_, i) => translationFit.inlierMask[i] !== 0);
     const residualError = mean(inlierResiduals.map((r) => Math.hypot(r.dx, r.dy)));
 
@@ -256,7 +255,16 @@ export function estimateGlobalMotion(
 
     const model = computeDiagnosticModel ? diagnosticModel(cv, correspondences, inlierRatio, residualError) : "translation";
 
-    const regionalMotion = computeRegionalResiduals(correspondences, residuals, width, height);
+    const regionalMotion = computeRegionalResiduals(
+        correspondences,
+        residuals,
+        width,
+        height,
+        PARALLAX_GRID_SIZE,
+        PARALLAX_GRID_SIZE,
+        MIN_QUADRANT_SAMPLES,
+        PARALLAX_MAX_QUADRANT_DISPERSION_PX
+    );
     const parallaxDetected =
         valid &&
         inlierRatio <= PARALLAX_MAX_INLIER_RATIO &&
@@ -272,7 +280,9 @@ export function estimateGlobalMotion(
         inlierRatio,
         residualError,
         parallaxDetected,
-        regionalMotion
+        regionalMotion,
+        gridRows: PARALLAX_GRID_SIZE,
+        gridCols: PARALLAX_GRID_SIZE
     };
 }
 
@@ -286,41 +296,11 @@ export function estimateGlobalMotion(
  * preference for median over outliers, e.g. BlobTracker's own
  * CameraMotionEstimator). With ~20 correspondences this is at most a few
  * hundred distance comparisons, trivial next to the block-matching that
- * produced them.
- */
-function fitTranslationRansac(correspondences: Correspondence[]): { dx: number; dy: number; inlierMask: number[] } {
-    const displacements = correspondences.map((c) => ({ dx: c.toX - c.fromX, dy: c.toY - c.fromY }));
-
-    let bestInlierMask: boolean[] = new Array(correspondences.length).fill(false);
-    let bestCount = -1;
-
-    for (let h = 0; h < displacements.length; h++) {
-        const hypothesis = displacements[h];
-        const mask = displacements.map((d) => Math.hypot(d.dx - hypothesis.dx, d.dy - hypothesis.dy) <= RANSAC_REPROJ_THRESHOLD_PX);
-        const count = mask.filter(Boolean).length;
-        if (count > bestCount) {
-            bestCount = count;
-            bestInlierMask = mask;
-        }
-    }
-
-    const inlierDisplacements = displacements.filter((_, i) => bestInlierMask[i]);
-    const dx = median(inlierDisplacements.map((d) => d.dx));
-    const dy = median(inlierDisplacements.map((d) => d.dy));
-
-    // Re-derive the final inlier mask against the REFINED (median)
-    // translation, not the single seed hypothesis — the median of the
-    // seed's inlier set is usually a slightly better estimate than any
-    // one of its members, and a correspondence right at the boundary can
-    // flip in or out accordingly.
-    const inlierMask = displacements.map((d) => (Math.hypot(d.dx - dx, d.dy - dy) <= RANSAC_REPROJ_THRESHOLD_PX ? 1 : 0));
-
-    return { dx, dy, inlierMask };
-}
-
-/**
- * Purely diagnostic: fits a full affine model via OpenCV's RANSAC (see
- * fitAffineRansac) and reports "affine" only when it explains the SAME
+ * produced them. See MotionModelFit.ts for the implementation, shared with
+ * the motion-field path.
+ *
+ * Purely diagnostic: `diagnosticModel` below also fits a full affine model
+ * via OpenCV's RANSAC and reports "affine" only when it explains the SAME
  * correspondences decisively better than the translation actually used —
  * both a meaningfully higher inlier ratio and a meaningfully lower
  * residual, not just a marginal improvement a 6-DOF model gets "for
@@ -336,15 +316,20 @@ function diagnosticModel(cv: OpenCv, correspondences: Correspondence[], translat
 
     const affineInlierRatio = affineInliers.length / correspondences.length;
     const affineResiduals = correspondences
-        .map((c) => residualOf(c, affineFit.matrix))
+        .map((c) => residualOfAffine(c, affineFit.matrix))
         .filter((_, i) => affineFit.inlierMask[i] !== 0);
     const affineResidualError = mean(affineResiduals.map((r) => Math.hypot(r.dx, r.dy)));
 
-    const meaningfullyMoreInliers = affineInlierRatio - translationInlierRatio >= AFFINE_DIAGNOSTIC_MIN_GAIN;
-    const meaningfullyLowerResidual =
-        translationResidualError <= 0 || affineResidualError <= translationResidualError * AFFINE_DIAGNOSTIC_MAX_RESIDUAL_FRACTION;
+    const meaningfullyBetter = isMeaningfullyBetterFit(
+        translationInlierRatio,
+        translationResidualError,
+        affineInlierRatio,
+        affineResidualError,
+        AFFINE_DIAGNOSTIC_MIN_GAIN,
+        AFFINE_DIAGNOSTIC_MAX_RESIDUAL_FRACTION
+    );
 
-    return meaningfullyMoreInliers && meaningfullyLowerResidual ? "affine" : "translation";
+    return meaningfullyBetter ? "affine" : "translation";
 }
 
 /** Grid-based sparse block matching — unchanged in spirit from the original translation-only estimator, just returning raw correspondences instead of pre-reducing them to a single displacement. */
@@ -415,138 +400,6 @@ function gatherCorrespondences(
     }
 
     return correspondences;
-}
-
-/**
- * Fits a 2x3 affine transform mapping `fromX/Y` -> `toX/Y` via OpenCV's
- * RANSAC-based estimateAffine2D — verified directly against the actual
- * WASM runtime (not just the vendored types) to (a) exist in this build,
- * (b) return a 2x3 `[a, b, tx, c, d, ty]` matrix plus an inlier mask, and
- * (c) correctly down-weight synthetic outlier correspondences without
- * distorting the fit. Returns null on a degenerate input (too few points,
- * collinear points) — OpenCV reports this as an empty (0-row) result
- * rather than throwing.
- */
-function fitAffineRansac(
-    cv: OpenCv,
-    correspondences: Correspondence[]
-): { matrix: [number, number, number, number, number, number]; inlierMask: number[] } | null {
-    const fromArray: number[] = [];
-    const toArray: number[] = [];
-    for (const c of correspondences) {
-        fromArray.push(c.fromX, c.fromY);
-        toArray.push(c.toX, c.toY);
-    }
-
-    const fromMat = cv.matFromArray(correspondences.length, 1, cv.CV_32FC2, fromArray);
-    const toMat = cv.matFromArray(correspondences.length, 1, cv.CV_32FC2, toArray);
-    const inliersMat = new cv.Mat();
-
-    try {
-        const M = (
-            cv.estimateAffine2D as (
-                from: CvMat,
-                to: CvMat,
-                inliers: CvMat,
-                method: number,
-                ransacReprojThreshold: number,
-                maxIters: number,
-                confidence: number,
-                refineIters: number
-            ) => CvMat
-        )(fromMat, toMat, inliersMat, cv.RANSAC, RANSAC_REPROJ_THRESHOLD_PX, RANSAC_MAX_ITERS, RANSAC_CONFIDENCE, 10);
-
-        try {
-            if (M.rows !== 2 || M.cols !== 3) return null;
-            const data = M.data64F;
-            const matrix: [number, number, number, number, number, number] = [
-                data[0],
-                data[1],
-                data[2],
-                data[3],
-                data[4],
-                data[5]
-            ];
-            const inlierMask = Array.from(inliersMat.data as Uint8Array);
-            return { matrix, inlierMask };
-        } finally {
-            M.delete();
-        }
-    } finally {
-        fromMat.delete();
-        toMat.delete();
-        inliersMat.delete();
-    }
-}
-
-function applyAffine(matrix: [number, number, number, number, number, number], x: number, y: number): { dx: number; dy: number } {
-    return { dx: matrix[0] * x + matrix[1] * y + matrix[2], dy: matrix[3] * x + matrix[4] * y + matrix[5] };
-}
-
-function residualOf(c: Correspondence, matrix: [number, number, number, number, number, number]): { dx: number; dy: number } {
-    const predicted = applyAffine(matrix, c.fromX, c.fromY);
-    return { dx: c.toX - predicted.dx, dy: c.toY - predicted.dy };
-}
-
-/**
- * Buckets every correspondence's residual (relative to the fitted global
- * model) into a 2x2 spatial grid by its previous-frame position, and
- * reports each cell's mean residual plus whether that cell's
- * correspondences actually agree with each other. A cell is only
- * `coherent` with enough samples AND low internal dispersion — this is
- * what tells a genuine depth-layer residual (several correspondences in
- * one region of the frame all pointing the same uncompensated way) apart
- * from a cell that just happens to contain scattered, mutually
- * contradictory leftover motion (noise, or a couple of unrelated small
- * outliers) worth ignoring.
- */
-function computeRegionalResiduals(
-    correspondences: Correspondence[],
-    residuals: { dx: number; dy: number }[],
-    width: number,
-    height: number
-): RegionalMotionCell[] {
-    const cells: RegionalMotionCell[] = [];
-
-    for (let row = 0; row < PARALLAX_GRID_SIZE; row++) {
-        for (let col = 0; col < PARALLAX_GRID_SIZE; col++) {
-            const inCell = correspondences
-                .map((c, i) => ({ c, r: residuals[i] }))
-                .filter(({ c }) => Math.floor((c.fromX / width) * PARALLAX_GRID_SIZE) === col && Math.floor((c.fromY / height) * PARALLAX_GRID_SIZE) === row);
-
-            if (inCell.length < MIN_QUADRANT_SAMPLES) {
-                cells.push({ row, col, dx: 0, dy: 0, sampleCount: inCell.length, coherent: false });
-                continue;
-            }
-
-            const meanDx = mean(inCell.map(({ r }) => r.dx));
-            const meanDy = mean(inCell.map(({ r }) => r.dy));
-            const dispersion = mean(inCell.map(({ r }) => Math.hypot(r.dx - meanDx, r.dy - meanDy)));
-
-            cells.push({
-                row,
-                col,
-                dx: meanDx,
-                dy: meanDy,
-                sampleCount: inCell.length,
-                coherent: dispersion <= PARALLAX_MAX_QUADRANT_DISPERSION_PX
-            });
-        }
-    }
-
-    return cells;
-}
-
-function mean(values: number[]): number {
-    if (values.length === 0) return 0;
-    return values.reduce((sum, v) => sum + v, 0) / values.length;
-}
-
-function median(values: number[]): number {
-    if (values.length === 0) return 0;
-    const sorted = [...values].sort((a, b) => a - b);
-    const mid = Math.floor(sorted.length / 2);
-    return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
 }
 
 /**

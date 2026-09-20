@@ -3,7 +3,8 @@ import type { BlobData } from "../tracking/TrackTypes";
 import type { AnalysisSettings, DetectorDebugInfo, MotionCandidateDebug } from "./AnalysisTypes";
 import { estimateGlobalMotion, compensateGlobalMotion, NO_GLOBAL_MOTION } from "./GlobalMotionEstimator";
 import type { GlobalMotion } from "./GlobalMotionEstimator";
-import { extractCandidates, dedupeSmallPathCoveredByNormal } from "./MotionCandidateExtractor";
+import { estimateMotionField } from "./SceneMotionEstimator";
+import { extractCandidates, dedupeSmallPathCoveredByNormal, enrichWithSceneMotion } from "./MotionCandidateExtractor";
 import { MotionPersistenceTracker } from "./MotionPersistenceTracker";
 import { filterCandidates } from "./MotionCandidateFilter";
 import type { MotionCandidate } from "./MotionCandidate";
@@ -61,7 +62,8 @@ async function loadCv(): Promise<OpenCv> {
  * backwards: with a static camera, only content that actually changes
  * between frames should surface as a blob at all.
  *
- * Camera motion is compensated before diffing (see GlobalMotionEstimator)
+ * Camera motion is compensated before diffing (see GlobalMotionEstimator /
+ * SceneMotionEstimator, chosen by AnalysisSettings.cameraMotionMode)
  * rather than left entirely to the tracking layer: without it, a pan
  * makes the whole frame read as "motion", which is exactly the failure
  * this detector exists to avoid. Compensation is a robust TRANSLATION
@@ -76,6 +78,21 @@ async function loadCv(): Promise<OpenCv> {
  * already-tracked blob velocities for a different purpose (predicting
  * where a track should be next) — this one exists purely to keep
  * detection itself spatially meaningful.
+ *
+ * `cameraMotionMode` picks WHICH estimator produces this frame's
+ * GlobalMotion: "legacy" is the original grid-based block-matching
+ * translation, "motion-field" is a sparse-optical-flow based estimator
+ * (SparseMotionEstimator + SceneMotionEstimator) built specifically for
+ * real 3D camera translation through a scene with depth — a drone, or a
+ * camera moving through traffic — where near/mid/far content shifts by
+ * different amounts and a single global translation (even with the
+ * legacy path's coarse 2x2 residual check) reads most of the frame as
+ * "moving". Both report the exact same GlobalMotion shape, so this
+ * branch is the only place that changes — everything downstream
+ * (compensation, the parallax-aware candidate gate, the debug HUD) is
+ * identical either way. See SceneMotionEstimator's module doc for the
+ * full reasoning and scripts/detectorScenarios.ts for scenarios covering
+ * both.
  *
  * Real 3D camera translation (a drone moving forward, a vehicle-mounted
  * camera moving through a street) breaks the "one global translation"
@@ -182,7 +199,9 @@ export class BlobDetector {
             }
 
             const globalMotion: GlobalMotion = settings.cameraCompensationEnabled
-                ? estimateGlobalMotion(cv, previous, gray, width, height, settings.detectorDebugEnabled)
+                ? settings.cameraMotionMode === "motion-field"
+                    ? estimateMotionField(cv, previous, gray, width, height, settings.detectorDebugEnabled)
+                    : estimateGlobalMotion(cv, previous, gray, width, height, settings.detectorDebugEnabled)
                 : NO_GLOBAL_MOTION;
 
             let diffSource: CvMat = previous;
@@ -242,7 +261,8 @@ export class BlobDetector {
                 smallCandidates = dedupeSmallPathCoveredByNormal(normalCandidates, smallCandidates);
             }
 
-            const allCandidates = this.persistenceTracker.update([...normalCandidates, ...smallCandidates]);
+            const persistedCandidates = this.persistenceTracker.update([...normalCandidates, ...smallCandidates]);
+            const allCandidates = enrichWithSceneMotion(persistedCandidates, globalMotion, width, height);
             const { accepted, rejected } = filterCandidates(allCandidates, frameArea, { globalMotion, width, height });
 
             const blobs = accepted.map((candidate, index) => toBlobData(candidate, index + 1, width, height));

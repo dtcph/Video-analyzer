@@ -102,6 +102,13 @@ export class AnalysisControls {
             <div class="tracking-section-label">Camera motion &amp; small objects</div>
             <div class="detector-debug-row">
                 <label><input type="checkbox" data-setting="cameraCompensationEnabled" ${DEFAULT_ANALYSIS_SETTINGS.cameraCompensationEnabled ? "checked" : ""} /> Camera compensation</label>
+                <label>
+                    Motion model
+                    <select data-camera-motion-mode>
+                        <option value="legacy" ${DEFAULT_ANALYSIS_SETTINGS.cameraMotionMode === "legacy" ? "selected" : ""}>Legacy (block matching)</option>
+                        <option value="motion-field" ${DEFAULT_ANALYSIS_SETTINGS.cameraMotionMode === "motion-field" ? "selected" : ""}>Motion field (sparse flow)</option>
+                    </select>
+                </label>
                 <label><input type="checkbox" data-setting="smallObjectDetectionEnabled" ${DEFAULT_ANALYSIS_SETTINGS.smallObjectDetectionEnabled ? "checked" : ""} /> Small-object detection</label>
                 <label><input type="checkbox" data-setting="detectorDebugEnabled" ${DEFAULT_ANALYSIS_SETTINGS.detectorDebugEnabled ? "checked" : ""} /> Detector debug (compute)</label>
             </div>
@@ -110,6 +117,7 @@ export class AnalysisControls {
                 <label><input type="checkbox" data-mode="compensatedDiff" /> Compensated diff</label>
                 <label><input type="checkbox" data-mode="motionMask" /> Motion mask</label>
                 <label><input type="checkbox" data-mode="rejectedCandidates" /> Rejected candidates</label>
+                <label><input type="checkbox" data-mode="sparseFlow" /> Sparse flow (motion-field)</label>
             </div>
             <div class="detector-debug-readout" data-camera-motion-readout>Camera motion: —</div>
         `;
@@ -142,6 +150,10 @@ export class AnalysisControls {
             });
         });
 
+        this.cameraMotionModeSelect.addEventListener("change", () => {
+            this.onThresholdChange?.({ cameraMotionMode: this.cameraMotionModeSelect.value as AnalysisSettings["cameraMotionMode"] });
+        });
+
         this.analysisToggleButton.addEventListener("click", () => this.onAnalysisToggle?.());
 
         this.collapsible = makeCollapsible(this.element, "Analysis", true);
@@ -153,6 +165,10 @@ export class AnalysisControls {
 
     private get analysisToggleButton(): HTMLButtonElement {
         return this.element.querySelector(".analysis-toggle-button") as HTMLButtonElement;
+    }
+
+    private get cameraMotionModeSelect(): HTMLSelectElement {
+        return this.element.querySelector("[data-camera-motion-mode]") as HTMLSelectElement;
     }
 
     onToggleLayer(handler: LayerToggleHandler): void {
@@ -191,7 +207,7 @@ export class AnalysisControls {
         });
         this.element
             .querySelectorAll<HTMLInputElement>(
-                'input[data-mode="rawDiff"], input[data-mode="compensatedDiff"], input[data-mode="motionMask"], input[data-mode="rejectedCandidates"]'
+                'input[data-mode="rawDiff"], input[data-mode="compensatedDiff"], input[data-mode="motionMask"], input[data-mode="rejectedCandidates"], input[data-mode="sparseFlow"]'
             )
             .forEach((input) => {
                 input.checked = false;
@@ -204,6 +220,7 @@ export class AnalysisControls {
             const key = input.dataset.setting as keyof AnalysisSettings;
             input.checked = Boolean(DEFAULT_ANALYSIS_SETTINGS[key]);
         });
+        this.cameraMotionModeSelect.value = DEFAULT_ANALYSIS_SETTINGS.cameraMotionMode;
         this.element.querySelectorAll("[data-stat]").forEach((el) => (el.textContent = ""));
         this.element.querySelectorAll("[data-exposure-stat]").forEach((el) => (el.textContent = ""));
         this.updateBlobStats([]);
@@ -247,10 +264,11 @@ export class AnalysisControls {
             el.textContent = "Camera motion: —";
             return;
         }
-        const { dx, dy, confidence, valid, model, inlierRatio, residualError, parallaxDetected } = debug.globalMotion;
+        const { dx, dy, confidence, valid, model, inlierRatio, residualError, parallaxDetected, featureCount, validCount } = debug.globalMotion;
+        const featureSuffix = featureCount !== undefined ? ` | features ${validCount ?? 0}/${featureCount}` : "";
         el.textContent =
             `Camera motion: dx ${dx.toFixed(1)}px dy ${dy.toFixed(1)}px confidence ${confidence.toFixed(2)} ${valid ? "(compensating)" : "(not compensating)"} | ` +
-            `model ${model} | inliers ${(inlierRatio * 100).toFixed(0)}% | residual ${residualError.toFixed(2)}px | parallax ${parallaxDetected ? "yes" : "no"}`;
+            `model ${model} | inliers ${(inlierRatio * 100).toFixed(0)}% | residual ${residualError.toFixed(2)}px | parallax ${parallaxDetected ? "yes" : "no"}${featureSuffix}`;
     }
 
     updateBlobStats(blobs: BlobData[]): void {

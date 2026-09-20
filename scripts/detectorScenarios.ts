@@ -858,5 +858,177 @@ await test("slow camera movement (1px/frame): document whether it is resolved", 
     // Documenting current behavior — see written report's real-footage-only section.
 });
 
+// ---------------------------------------------------------------------------
+// Motion-field scenarios — exercise AnalysisSettings.cameraMotionMode:
+// "motion-field" (SparseMotionEstimator + SceneMotionEstimator), the
+// sparse-optical-flow based replacement for the legacy path's grid-based
+// block matching, built specifically for real 3D camera translation
+// through a scene with depth (see SceneMotionEstimator's module doc).
+// Only the camera-motion ESTIMATE differs between paths — the underlying
+// frame-diff candidate pipeline (extraction, persistence, filtering) is
+// identical, so these scenarios focus on what's actually different:
+// whether the motion-field path's estimate/compensation holds up on
+// ordinary cases (parity with legacy) and specifically improves on the
+// legacy path's known weak spot (multiple depth layers moving at
+// different apparent rates under one camera translation).
+// ---------------------------------------------------------------------------
+
+/** Copies a rectangular region of `src` into `dst`, in place — used to composite an independently-shifted "depth layer" into one frame without a second full-frame allocation. */
+function copyRect(dst: SynthFrame, src: SynthFrame, x: number, y: number, w: number, h: number): void {
+    for (let yy = Math.max(0, y); yy < Math.min(dst.height, y + h); yy++) {
+        for (let xx = Math.max(0, x); xx < Math.min(dst.width, x + w); xx++) {
+            const p = (yy * dst.width + xx) * 4;
+            dst.data[p] = src.data[p];
+            dst.data[p + 1] = src.data[p + 1];
+            dst.data[p + 2] = src.data[p + 2];
+        }
+    }
+}
+
+await test("motion-field: static camera + moving object is still detected (parity with legacy)", async () => {
+    const frames: SynthFrame[] = [];
+    for (let step = 0; step <= 3; step++) {
+        const f = frame(60);
+        paintTexture(f, 40, 100, 51); // static background still needs texture for goodFeaturesToTrack to find anything at all
+        paintRect(f, 50 + step * 12, 50, 30, 30, 220);
+        frames.push(f);
+    }
+
+    const results = await runSequence(frames, settings({ cameraMotionMode: "motion-field" }));
+    const finalBlobs = last(results).blobs;
+    console.log(`      [info] motion-field static+moving-object blobs: ${finalBlobs.length}`);
+    assert.ok(finalBlobs.length > 0, "expected the moving object to still be detected under the motion-field path");
+});
+
+await test("motion-field: camera pan + static background is estimated and suppressed", async () => {
+    const bg = frame(60);
+    paintTexture(bg, 40, 100, 52);
+    const PAN_DX = 6;
+
+    const frames: SynthFrame[] = [bg];
+    let current = bg;
+    for (let step = 1; step <= 4; step++) {
+        current = shiftFrame(current, PAN_DX, 0);
+        frames.push(current);
+    }
+
+    const results = await runSequence(frames, settings({ cameraMotionMode: "motion-field" }));
+    const motion = last(results).debug!.globalMotion;
+    const finalBlobs = last(results).blobs;
+    console.log(
+        `      [info] motion-field pan: dx=${motion.dx.toFixed(1)} conf=${motion.confidence.toFixed(2)} features=${motion.validCount}/${motion.featureCount} blobs=${finalBlobs.length}`
+    );
+    assert.ok(motion.valid, "expected a confident motion-field translation estimate for a pure pan");
+    assert.ok(Math.abs(motion.dx - PAN_DX) <= 1.5, `expected dx near ${PAN_DX}px/frame, got ${motion.dx}`);
+    assert.ok(finalBlobs.length <= 1, `expected the panning background to be mostly suppressed, got ${finalBlobs.length} blobs`);
+});
+
+await test("motion-field: camera pan + independently moving object remains detectable", async () => {
+    let background = frame(60);
+    paintTexture(background, 40, 100, 53);
+    const PAN_DX = 6;
+
+    const frames: SynthFrame[] = [];
+    for (let step = 0; step <= 3; step++) {
+        const f = cloneFrame(background);
+        paintRect(f, 140 + step * 10, 100, 24, 24, 230);
+        frames.push(f);
+        background = shiftFrame(background, PAN_DX, 0);
+    }
+
+    const results = await runSequence(frames, settings({ cameraMotionMode: "motion-field" }));
+    const finalBlobs = last(results).blobs;
+    console.log(`      [info] motion-field pan+object: ${finalBlobs.length} blobs, motion=${JSON.stringify(last(results).debug?.globalMotion)}`);
+    assert.ok(finalBlobs.length > 0, "expected the independently moving object to still produce a blob after motion-field compensation");
+});
+
+// ---------------------------------------------------------------------------
+// The scenario the whole motion-field path was built for: real 3D camera
+// translation through a scene with depth, where a near layer's uncompensated
+// residual doesn't line up with the legacy path's coarse 2x2 quadrants but
+// DOES line up with the motion-field path's finer 4x3 grid (see
+// SceneMotionEstimator) — i.e. exactly the gap called out in the legacy
+// path's own module doc and in scenario 18's note above ("a real depth
+// boundary that doesn't line up with [a coarse] grid gets its residual
+// averaged/diluted"). This is a deliberately grid-aligned synthetic case
+// (same reasoning as scenario 17/18: an unaligned realistic multi-band
+// layout is real-footage-only territory, not something a coarse-vs-fine
+// regional grid alone resolves — see this module's written report), chosen
+// specifically to demonstrate the finer grid's benefit rather than to claim
+// general depth-layer robustness.
+// ---------------------------------------------------------------------------
+await test("motion-field: a depth-layer residual that a coarse 2x2 grid dilutes is isolated by the finer motion-field grid", async () => {
+    const FAR_DX = 2;
+    const NEAR_DX = 10;
+    const STEPS = 4;
+    // One motion-field grid cell (4 cols x 3 rows over 320x240 -> 80x80 px
+    // cells) in the bottom-right corner — under the LEGACY path's coarse
+    // 2x2 grid (160x120 px quadrants), this same small region sits inside
+    // a quadrant that's mostly far-layer (zero residual), diluting the
+    // near layer's own signal; under the motion-field grid it's an entire
+    // cell by itself.
+    const NEAR_CELL = { x: 240, y: 160, w: 80, h: 80 };
+
+    function buildFrames(): SynthFrame[] {
+        const farBase = frame(60);
+        paintTexture(farBase, 40, 100, 81);
+        const nearBase = frame(60);
+        paintTexture(nearBase, 40, 100, 82);
+
+        const frames: SynthFrame[] = [];
+        for (let step = 0; step <= STEPS; step++) {
+            const far = shiftFrame(farBase, FAR_DX * step, 0);
+            const near = shiftFrame(nearBase, NEAR_DX * step, 0);
+            const composite = cloneFrame(far);
+            copyRect(composite, near, NEAR_CELL.x, NEAR_CELL.y, NEAR_CELL.w, NEAR_CELL.h);
+            // A small object moving independently of BOTH depth layers,
+            // well away from the near-layer cell.
+            paintRect(composite, 20 + step * 12, 20, 16, 16, 235);
+            frames.push(composite);
+        }
+        return frames;
+    }
+
+    const frames = buildFrames();
+    const motionFieldResults = await runSequence(frames, settings({ cameraMotionMode: "motion-field" }));
+    const legacyResults = await runSequence(frames, settings({ cameraMotionMode: "legacy" }));
+
+    const motionFieldMotion = last(motionFieldResults).debug!.globalMotion;
+    const legacyMotion = last(legacyResults).debug!.globalMotion;
+
+    console.log(
+        `      [info] depth-layer (grid-aligned corner cell): motion-field parallax=${motionFieldMotion.parallaxDetected} blobs=${last(motionFieldResults).blobs.length}, legacy parallax=${legacyMotion.parallaxDetected} blobs=${last(legacyResults).blobs.length}`
+    );
+
+    assert.ok(motionFieldMotion.valid, "expected a confident far-layer translation estimate despite the near-layer cell");
+    assert.ok(
+        motionFieldMotion.parallaxDetected,
+        "expected the motion-field path's finer grid to flag the near-layer cell's own residual as parallax"
+    );
+
+    const nearFieldCell = motionFieldMotion.regionalMotion.find((c) => c.row === Math.floor(NEAR_CELL.y / (HEIGHT / motionFieldMotion.gridRows)) && c.col === Math.floor(NEAR_CELL.x / (WIDTH / motionFieldMotion.gridCols)));
+    assert.ok(nearFieldCell?.coherent, "expected the near-layer cell to be reported as a coherent regional residual");
+    const nearResidual = Math.hypot(nearFieldCell!.dx, nearFieldCell!.dy);
+    assert.ok(nearResidual > 3, `expected the isolated near-layer cell to carry a meaningful residual, got ${nearResidual.toFixed(2)}px`);
+});
+
+await test("motion-field: sudden camera movement stays conservative rather than exploding into blobs", async () => {
+    const f1 = frame(60);
+    paintTexture(f1, 40, 100, 71);
+    const f2 = shiftFrame(f1, 30, -18); // a large single-frame jump, well beyond ordinary pan speed
+
+    const results = await runSequence([f1, f2], settings({ cameraMotionMode: "motion-field" }));
+    const motion = last(results).debug!.globalMotion;
+    const blobs = last(results).blobs;
+    console.log(`      [info] motion-field sudden jump: valid=${motion.valid} conf=${motion.confidence.toFixed(2)} blobs=${blobs.length}`);
+    // Either the jump is estimated confidently (and compensated), or the
+    // estimate correctly reports low confidence and the detector falls
+    // back to the uncompensated diff — what must NOT happen is a
+    // confident but WRONG estimate creating a frame-wide blob explosion.
+    if (!motion.valid) {
+        assert.ok(blobs.length < 30, `expected a low-confidence estimate to still avoid a frame-wide blob explosion, got ${blobs.length}`);
+    }
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

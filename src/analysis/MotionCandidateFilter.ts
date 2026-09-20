@@ -174,8 +174,8 @@ function isParallaxBackgroundResidual(candidate: MotionCandidate, parallax: Para
 }
 
 function regionalCellFor(centerX: number, centerY: number, parallax: ParallaxContext): RegionalMotionCell | undefined {
-    const gridSize = Math.sqrt(parallax.globalMotion.regionalMotion.length) || 1;
-    const col = Math.min(gridSize - 1, Math.floor((centerX / parallax.width) * gridSize));
-    const row = Math.min(gridSize - 1, Math.floor((centerY / parallax.height) * gridSize));
+    const { gridRows, gridCols } = parallax.globalMotion;
+    const col = Math.min(gridCols - 1, Math.floor((centerX / parallax.width) * gridCols));
+    const row = Math.min(gridRows - 1, Math.floor((centerY / parallax.height) * gridRows));
     return parallax.globalMotion.regionalMotion.find((cell) => cell.row === row && cell.col === col);
 }

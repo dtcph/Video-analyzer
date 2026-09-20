@@ -101,8 +101,25 @@ export interface AnalysisSettings {
     /** Optional Gaussian blur kernel radius in px (at analysis resolution) applied before thresholding, 0 = off. */
     blurRadius: number;
 
-    /** When on, BlobDetector estimates global (camera) translation each frame (see GlobalMotionEstimator) and compensates for it before diffing, so panning doesn't read as motion everywhere. Never applied when the estimate's own confidence is too low — this only ever removes motion the estimator actually trusts, it doesn't force compensation. */
+    /** When on, BlobDetector estimates global (camera) translation each frame (see GlobalMotionEstimator/SceneMotionEstimator, gated by cameraMotionMode) and compensates for it before diffing, so panning doesn't read as motion everywhere. Never applied when the estimate's own confidence is too low — this only ever removes motion the estimator actually trusts, it doesn't force compensation. */
     cameraCompensationEnabled: boolean;
+    /**
+     * Which motion-estimation path BlobDetector uses when
+     * cameraCompensationEnabled is on: "legacy" is the original grid-based
+     * block-matching translation + coarse 2x2 residual grid
+     * (GlobalMotionEstimator); "motion-field" is the sparse-optical-flow
+     * based estimator (SparseMotionEstimator + SceneMotionEstimator) built
+     * to handle real 3D camera translation through a scene with depth
+     * (drone footage, a camera moving through traffic) far better, via
+     * ~10x more correspondences and a finer regional grid. Both report the
+     * same GlobalMotion shape, so everything downstream (BlobDetector's
+     * compensation, MotionCandidateFilter's parallax gate, the debug HUD)
+     * works unchanged regardless of which produced it. Kept switchable
+     * (rather than replacing the legacy path outright) specifically so
+     * regression testing stays easy — see scripts/detectorScenarios.ts,
+     * which exercises both.
+     */
+    cameraMotionMode: "legacy" | "motion-field";
     /** When on, BlobDetector computes and reports the extra per-frame buffers in DetectorDebugInfo (raw diff, compensated diff, final motion mask, candidates) for the debug view — real per-frame cost, left off by default. */
     detectorDebugEnabled: boolean;
     /** When on, BlobDetector runs a second, more sensitive detection pass (lower area floor, gentler morphology) alongside the normal one, specifically for small/distant objects the normal path's own minimum area would otherwise miss — gated by stricter persistence/direction requirements (see MotionCandidateFilter) precisely because more sensitivity alone would also catch far more noise. */
@@ -156,6 +173,7 @@ export const DEFAULT_ANALYSIS_SETTINGS: AnalysisSettings = {
     morphologyStrength: 0,
     blurRadius: 0,
     cameraCompensationEnabled: true,
+    cameraMotionMode: "legacy",
     detectorDebugEnabled: false,
     smallObjectDetectionEnabled: true,
     shadowThreshold: 0.02,

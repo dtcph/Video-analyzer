@@ -49,4 +49,28 @@ export interface MotionCandidate {
     directionConsistency: number;
 
     path: MotionPath;
+
+    /**
+     * Scene-motion context, attached by `enrichWithSceneMotion` (see
+     * MotionCandidateExtractor.ts) only when a GlobalMotion estimate is
+     * available — i.e. always alongside `path`/`persistence`, but their
+     * MEANING depends on which estimator produced the GlobalMotion (see
+     * GlobalMotion.model): under the motion-field path these describe
+     * this candidate's relationship to the finer regional flow grid, not
+     * just the legacy 2x2 parallax gate MotionCandidateFilter already
+     * consumes directly (`isParallaxBackgroundResidual`). Present so a
+     * FUTURE filtering pass — or the debug HUD — can distinguish
+     * "high-confidence independent motion" from "possible depth/parallax
+     * motion" without recomputing the regional lookup; MotionCandidateFilter
+     * itself does not currently read these beyond its existing
+     * regionalCellFor gate.
+     */
+    /** Magnitude (px) of this candidate's own regional cell's residual motion — near zero means the scene-motion model already explains this part of the frame; large means this region carries real leftover motion the global fit doesn't. 0 when no coherent cell covers this candidate's position. */
+    localMotionResidual?: number;
+    /** GlobalMotion.confidence at the time this candidate was measured — how much to trust the scene-motion estimate at all this frame. */
+    sceneMotionConfidence?: number;
+    /** 0..1 — how well-supported this candidate's regional cell is: 1 for a cell with many tightly-agreeing correspondences (a real depth layer), 0 for one with too few samples or too much internal disagreement to mean anything. */
+    motionLayerConfidence?: number;
+    /** 0..1 inverse of the regional cell's own dispersion, capped — a direct "do this cell's correspondences actually agree with each other" reading, independent of sample count (unlike motionLayerConfidence, which folds both together). */
+    spatialCoherence?: number;
 }

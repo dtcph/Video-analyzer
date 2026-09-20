@@ -1,6 +1,7 @@
 import type { DetectorDebugInfo, FrameAnalysis } from "../analysis/AnalysisTypes";
 import { ExposureMaskBit } from "../analysis/AnalysisTypes";
 import type { RegionalMotionCell } from "../analysis/GlobalMotionEstimator";
+import type { MotionVector } from "../analysis/SparseMotionEstimator";
 
 export interface AnalysisVisibility {
   clip: boolean;
@@ -13,6 +14,8 @@ export interface AnalysisVisibility {
   motionMask: boolean;
   /** Draws MotionCandidateFilter's rejected candidates (dim, with their rejection reason) — explicitly opt-in and separate from the other debug channels, since seeing *why* the detector didn't produce a blob somewhere is a deeper debugging need than the usual "what did it produce" view. */
   rejectedCandidates: boolean;
+  /** Draws the motion-field path's sparse optical-flow field (tracked feature points + their raw displacement, distinct from the per-region residual arrows `renderRegionalMotionField` already draws) — only meaningful when AnalysisSettings.cameraMotionMode is "motion-field" (GlobalMotion.vectors is undefined/empty under the legacy path). See SceneMotionEstimator's module doc for why this exists: seeing the raw tracked points is what makes "why did the system think this region was/wasn't camera motion" answerable, not just the final regional summary. */
+  sparseFlow: boolean;
 }
 
 const CLIP_COLOR = [255, 60, 60, 170] as const;
@@ -243,6 +246,13 @@ export class AnalysisOverlay {
         `camera dx ${motion.dx.toFixed(1)}px dy ${motion.dy.toFixed(1)}px conf ${motion.confidence.toFixed(2)} ${motion.valid ? "(compensating)" : "(not compensating)"}`,
         `model ${motion.model} | inliers ${(motion.inlierRatio * 100).toFixed(0)}% | residual ${motion.residualError.toFixed(2)}px | parallax ${motion.parallaxDetected ? "YES" : "no"}`
       ];
+      if (motion.featureCount !== undefined) {
+        const coherentRegions = motion.regionalMotion.filter((cell) => cell.coherent).length;
+        const independentCandidates = debug.acceptedCandidates.length;
+        lines.push(
+          `features ${motion.validCount ?? 0}/${motion.featureCount} | spatial variance ${meanDispersion(motion.regionalMotion).toFixed(1)}px | motion layers ${coherentRegions} | independent candidates ${independentCandidates}`
+        );
+      }
       let textY = y + 4;
       for (const line of lines) {
         this.ctx.fillText(line, canvas.width - DEBUG_THUMB_WIDTH - 8, textY);
@@ -250,8 +260,63 @@ export class AnalysisOverlay {
       }
       this.ctx.restore();
 
-      this.renderRegionalMotionField(motion.regionalMotion, width, height);
+      if (visibility.sparseFlow) this.renderSparseFlow(motion.vectors, motion.residualVectors, width, height);
+      this.renderRegionalMotionField(motion.regionalMotion, motion.gridRows, motion.gridCols, width, height);
     }
+  }
+
+  /**
+   * Draws the motion-field path's raw sparse optical-flow field: a dot at
+   * each tracked feature's previous-frame position plus a short line to
+   * where it was tracked to (magenta, matching the rest of the detector-
+   * debug palette), and — when available — its post-scene-motion
+   * RESIDUAL as a second, differently-colored vector from the same point.
+   * Comparing the two at a glance is the point: a point whose raw vector
+   * is large but whose residual vector is near-zero is explained by the
+   * scene-motion model (background/camera motion); a point where both
+   * are large is either an independent object or an unexplained depth
+   * layer, which `renderRegionalMotionField`'s per-cell summary and
+   * MotionCandidateFilter's parallax gate then reason about further.
+   * No-ops under the legacy path, where GlobalMotion.vectors is empty.
+   */
+  private renderSparseFlow(vectors: MotionVector[] | undefined, residualVectors: MotionVector[] | undefined, debugWidth: number, debugHeight: number): void {
+    if (!vectors || vectors.length === 0) return;
+    const { canvas } = this.ctx;
+    const scaleX = canvas.width / debugWidth;
+    const scaleY = canvas.height / debugHeight;
+
+    this.ctx.save();
+    for (const v of vectors) {
+      const x = v.x * scaleX;
+      const y = v.y * scaleY;
+      this.ctx.fillStyle = "rgba(120, 220, 255, 0.6)";
+      this.ctx.beginPath();
+      this.ctx.arc(x, y, 1.5, 0, Math.PI * 2);
+      this.ctx.fill();
+
+      this.ctx.strokeStyle = "rgba(120, 220, 255, 0.45)";
+      this.ctx.lineWidth = 1;
+      this.ctx.beginPath();
+      this.ctx.moveTo(x, y);
+      this.ctx.lineTo(x + v.dx * scaleX, y + v.dy * scaleY);
+      this.ctx.stroke();
+    }
+
+    if (residualVectors) {
+      this.ctx.strokeStyle = "rgba(255, 60, 60, 0.55)";
+      this.ctx.lineWidth = 1;
+      const residualScale = 4; // residuals are usually just a couple px — exaggerate so they're visible next to the raw flow lines above
+      for (const v of residualVectors) {
+        if (v.magnitude < 0.5) continue;
+        const x = v.x * scaleX;
+        const y = v.y * scaleY;
+        this.ctx.beginPath();
+        this.ctx.moveTo(x, y);
+        this.ctx.lineTo(x + v.dx * residualScale * scaleX, y + v.dy * residualScale * scaleY);
+        this.ctx.stroke();
+      }
+    }
+    this.ctx.restore();
   }
 
   /**
@@ -265,18 +330,20 @@ export class AnalysisOverlay {
    * explains it). Non-coherent cells (too few samples, or too much
    * internal disagreement to trust — see GlobalMotionEstimator) are
    * drawn faint/dashed rather than omitted, so their absence of evidence
-   * is itself visible instead of silently blank.
+   * is itself visible instead of silently blank. `gridRows`/`gridCols`
+   * come directly from GlobalMotion — never assume a square grid, since
+   * the motion-field path deliberately uses a finer, non-square grid
+   * (see SceneMotionEstimator).
    */
-  private renderRegionalMotionField(cells: RegionalMotionCell[], debugWidth: number, debugHeight: number): void {
+  private renderRegionalMotionField(cells: RegionalMotionCell[], gridRows: number, gridCols: number, debugWidth: number, debugHeight: number): void {
     if (cells.length === 0) return;
     const { canvas } = this.ctx;
-    const gridSize = Math.round(Math.sqrt(cells.length));
     const scale = 6; // exaggerate for legibility, same convention as blob/track velocity vectors elsewhere
 
     this.ctx.save();
     for (const cell of cells) {
-      const cx = ((cell.col + 0.5) / gridSize) * debugWidth * (canvas.width / debugWidth);
-      const cy = ((cell.row + 0.5) / gridSize) * debugHeight * (canvas.height / debugHeight);
+      const cx = ((cell.col + 0.5) / gridCols) * debugWidth * (canvas.width / debugWidth);
+      const cy = ((cell.row + 0.5) / gridRows) * debugHeight * (canvas.height / debugHeight);
       const dx = cell.dx * scale;
       const dy = cell.dy * scale;
 
@@ -329,4 +396,11 @@ export class AnalysisOverlay {
     this.ctx.fillText(label, x, y + thumbHeight + 12);
     this.ctx.restore();
   }
+}
+
+/** Mean dispersion over only the `coherent` cells — see the HUD's "spatial variance" line. Non-coherent cells report dispersion as Infinity (see MotionModelFit.computeRegionalResiduals) and are excluded rather than dragging the mean to Infinity, since an untrusted cell's dispersion isn't a meaningful contribution to "how much do the trusted regions vary". */
+function meanDispersion(cells: RegionalMotionCell[]): number {
+  const coherent = cells.filter((cell) => cell.coherent);
+  if (coherent.length === 0) return 0;
+  return coherent.reduce((sum, cell) => sum + cell.dispersion, 0) / coherent.length;
 }

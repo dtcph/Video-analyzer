@@ -1,5 +1,11 @@
 import type { OpenCv, CvMat } from "./BlobDetector";
 import type { MotionCandidate, MotionPath } from "./MotionCandidate";
+import type { GlobalMotion, RegionalMotionCell } from "./GlobalMotionEstimator";
+
+/** Cap on how far MOTION_LAYER_DISPERSION_CAP-normalized dispersion can drive spatialCoherence down to 0 — a cell's dispersion is unbounded in principle (a totally scattered cell has no natural upper limit), so this defines what "no coherence at all" means in practice rather than letting one wild outlier cell divide by an arbitrarily large number. */
+const MOTION_LAYER_DISPERSION_CAP_PX = 6;
+/** How many samples a regional cell needs before motionLayerConfidence treats it as fully trustworthy (saturates at 1) — below this, confidence scales down linearly even for a tightly-agreeing cell, since a handful of correspondences agreeing could still be coincidence. */
+const MOTION_LAYER_SAMPLE_TARGET = 8;
 
 /**
  * Extracts connected-region measurements from a binary motion mask —
@@ -102,6 +108,43 @@ export function dedupeSmallPathCoveredByNormal(normal: MotionCandidate[], small:
                 (n) => s.centerX >= n.x && s.centerX <= n.x + n.width && s.centerY >= n.y && s.centerY <= n.y + n.height
             )
     );
+}
+
+/**
+ * Attaches scene-motion context (see MotionCandidate's own doc) to each
+ * candidate from whichever GlobalMotion estimate this frame produced —
+ * legacy or motion-field, the lookup is identical since both report the
+ * same shape (see GlobalMotion.gridRows/gridCols). A no-op (candidates
+ * returned unchanged) when `globalMotion` isn't valid, since an invalid
+ * estimate's regional grid isn't meaningful to attach to anything.
+ */
+export function enrichWithSceneMotion(candidates: MotionCandidate[], globalMotion: GlobalMotion, width: number, height: number): MotionCandidate[] {
+    if (!globalMotion.valid) return candidates;
+
+    return candidates.map((candidate) => {
+        const cell = regionalCellFor(candidate.centerX, candidate.centerY, globalMotion, width, height);
+        if (!cell || !cell.coherent) {
+            return { ...candidate, localMotionResidual: 0, sceneMotionConfidence: globalMotion.confidence, motionLayerConfidence: 0, spatialCoherence: 0 };
+        }
+
+        const spatialCoherence = Math.max(0, 1 - cell.dispersion / MOTION_LAYER_DISPERSION_CAP_PX);
+        const sampleWeight = Math.min(1, cell.sampleCount / MOTION_LAYER_SAMPLE_TARGET);
+
+        return {
+            ...candidate,
+            localMotionResidual: Math.hypot(cell.dx, cell.dy),
+            sceneMotionConfidence: globalMotion.confidence,
+            motionLayerConfidence: spatialCoherence * sampleWeight,
+            spatialCoherence
+        };
+    });
+}
+
+function regionalCellFor(centerX: number, centerY: number, globalMotion: GlobalMotion, width: number, height: number): RegionalMotionCell | undefined {
+    const { gridRows, gridCols } = globalMotion;
+    const col = Math.min(gridCols - 1, Math.floor((centerX / width) * gridCols));
+    const row = Math.min(gridRows - 1, Math.floor((centerY / height) * gridRows));
+    return globalMotion.regionalMotion.find((cell) => cell.row === row && cell.col === col);
 }
 
 /**
