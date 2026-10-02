@@ -7,6 +7,8 @@ export interface OverlayView {
     mediaRect: Box;
     /** Media time being displayed, seconds (0 for a still image). */
     timeSeconds: number;
+    /** Canvas pixels per CSS pixel; scale line widths and fonts by it. */
+    pixelRatio: number;
 }
 
 /** One visual layer (boxes, labels, debug views). Draws only; never computes detections. */
@@ -79,7 +81,8 @@ export class OverlayRenderer {
 
         const view: OverlayView = {
             mediaRect: containRect(media, { width: this.canvas.width, height: this.canvas.height }),
-            timeSeconds: this.source.timeSeconds()
+            timeSeconds: this.source.timeSeconds(),
+            pixelRatio: window.devicePixelRatio || 1
         };
         for (const layer of this.layers) {
             this.ctx.save();

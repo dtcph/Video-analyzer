@@ -34,6 +34,9 @@ export interface Settings {
 
 export type SettingKey = keyof Settings;
 
+/** Lowest selectable confidence threshold. The model returns detections down to it, so the slider never needs a new inference run. */
+export const MIN_CONFIDENCE = 0.05;
+
 interface BaseDef {
     label: string;
     /** One line, shown as the control's tooltip. */
@@ -79,7 +82,7 @@ export const SETTINGS_SCHEMA: { readonly [K in SettingKey]: SettingDef<Settings[
         label: "Confidence threshold",
         description: "Detections below this confidence are discarded.",
         group: "main",
-        min: 0.05,
+        min: MIN_CONFIDENCE,
         max: 0.95,
         step: 0.05,
         format: "percent",

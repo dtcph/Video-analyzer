@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { Candidate } from "../../src/inference/postprocess";
-import { decodeYoloV8, decodeYoloV8Nms, nonMaxSuppression, toSourceDetections } from "../../src/inference/postprocess";
+import {
+    decodeYoloV8,
+    decodeYoloV8Nms,
+    filterDetections,
+    nonMaxSuppression,
+    toSourceDetections
+} from "../../src/inference/postprocess";
 import { letterboxTransform } from "../../src/inference/preprocess";
 
 /** Builds a channel-major [4 + classes, anchors] head from per-anchor rows. */
@@ -101,5 +107,48 @@ describe("toSourceDetections", () => {
         expect(result).toHaveLength(1);
         expect(result[0].box.x).toBe(0);
         expect(result[0].box.y).toBe(0);
+    });
+});
+
+describe("filterDetections", () => {
+    function seeded(seed: number) {
+        let state = seed;
+        return () => (state = (state * 1664525 + 1013904223) % 2 ** 32) / 2 ** 32;
+    }
+
+    it("filtering after NMS at a low floor equals NMS on pre-filtered candidates", () => {
+        const random = seeded(7);
+        const transform = letterboxTransform({ width: 640, height: 640 }, 640);
+        for (let trial = 0; trial < 200; trial++) {
+            // Clustered boxes of 3 classes so suppression actually happens.
+            const candidates = Array.from({ length: 30 }, () => {
+                const x = Math.floor(random() * 4) * 100 + random() * 20;
+                const y = random() * 20;
+                return candidate(
+                    Math.floor(random() * 3),
+                    0.05 + random() * 0.95,
+                    x,
+                    y,
+                    x + 60 + random() * 20,
+                    y + 60
+                );
+            });
+            const threshold = 0.05 + random() * 0.9;
+            const mask = new Uint8Array([1, random() < 0.5 ? 1 : 0, 1]);
+
+            const late = filterDetections(
+                toSourceDetections(nonMaxSuppression(candidates, 0.5), transform),
+                threshold,
+                mask
+            );
+            const early = toSourceDetections(
+                nonMaxSuppression(
+                    candidates.filter((c) => c.score >= threshold && mask[c.classId] === 1),
+                    0.5
+                ),
+                transform
+            );
+            expect(late).toEqual(early);
+        }
     });
 });

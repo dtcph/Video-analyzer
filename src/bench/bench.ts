@@ -1,6 +1,7 @@
 import { COCO_CLASSES } from "../inference/cocoClasses";
+import { classColor } from "../rendering/classColors";
 import type { Detection } from "../inference/postprocess";
-import type { RuntimeKind } from "../inference/ortRuntime";
+import type { RuntimeKind } from "./benchRuntime";
 import type { LetterboxMode } from "../inference/preprocess";
 import type { BenchReady, BenchRequest, BenchResponse, BenchResult } from "./BenchMessages";
 
@@ -96,11 +97,6 @@ export async function runConfig(config: BenchConfig): Promise<BenchConfigResult>
         worker.terminate();
     }
     return result;
-}
-
-/** Deterministic, well-separated hue per class. */
-export function classColor(classId: number): string {
-    return `hsl(${(classId * 137.508) % 360} 85% 55%)`;
 }
 
 export async function draw(canvas: HTMLCanvasElement, url: string, detections: Detection[]): Promise<void> {

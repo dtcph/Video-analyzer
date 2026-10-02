@@ -1,5 +1,5 @@
 import type { Detection } from "../inference/postprocess";
-import type { RuntimeKind } from "../inference/ortRuntime";
+import type { RuntimeKind } from "./benchRuntime";
 import type { LetterboxMode } from "../inference/preprocess";
 
 export interface BenchInit {

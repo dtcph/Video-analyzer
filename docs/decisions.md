@@ -73,7 +73,8 @@ Evidence is in [benchmarks.md](benchmarks.md). All measurements come from one hi
 
 - **When:** the decoder takes each anchor's best class _first_, then drops the anchor if that class is disabled. This is Ultralytics' `classes=` semantics.
   - The alternative, filtering before the argmax, would relabel a disabled "car" as its runner-up "truck" and inflate truck counts. Rejected.
-- **Effect:** disabled classes never reach NMS, the tracker, the renderer or the counters. The tracker does less work, and a disabled class cannot create, steal or keep tracks.
+- **Where (Phase 2 implementation):** the worker returns all classes above a 0.05 score floor after class-aware NMS; the main thread drops disabled classes and scores below the threshold (`filterDetections`) before anything else sees them. Because NMS is class-aware and greedy by score, this is identical to filtering before NMS (a 200-case randomized test checks it). Slider and class changes therefore apply instantly, without a new inference run.
+- **Effect:** disabled classes never reach the tracker, the renderer or the counters. The tracker does less work, and a disabled class cannot create, steal or keep tracks.
 - **Realtime and webcam:**
   - a selection change applies from the next inferred frame;
   - tracks of newly disabled classes are dropped;

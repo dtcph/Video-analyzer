@@ -144,3 +144,18 @@ export function toSourceDetections(candidates: readonly Candidate[], transform: 
 function clamp01(value: number): number {
     return value < 0 ? 0 : value > 1 ? 1 : value;
 }
+
+/**
+ * Applies the user's confidence threshold and class selection to detections
+ * produced at a lower score floor. Equivalent to filtering before NMS: NMS is
+ * class-aware (removing a class cannot change another class's boxes) and
+ * greedy by score (a box above the threshold is only ever suppressed by a
+ * higher-scoring box, which also passes). Tested in postprocess.test.ts.
+ */
+export function filterDetections(
+    detections: readonly Detection[],
+    confThreshold: number,
+    enabledClasses: Uint8Array
+): Detection[] {
+    return detections.filter((d) => d.score >= confThreshold && enabledClasses[d.classId] === 1);
+}

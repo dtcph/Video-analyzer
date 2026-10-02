@@ -16,8 +16,8 @@ Work proceeds in phases 0–7. Each phase ends with a report, and the next one s
 | phase | content                                                                      | status                |
 | ----- | ---------------------------------------------------------------------------- | --------------------- |
 | 0     | archive old project, scaffold, port reusable modules                         | done                  |
-| 1     | spike: model export, ORT-Web on WebGPU/WASM, benchmarks, `docs/decisions.md` | done, awaiting review |
-| 2     | image detection end-to-end                                                   |                       |
+| 1     | spike: model export, ORT-Web on WebGPU/WASM, benchmarks, `docs/decisions.md` | done                  |
+| 2     | image detection end-to-end                                                   | done, awaiting review |
 | 3     | realtime video                                                               |                       |
 | 4     | tracking + total counts                                                      |                       |
 | 5     | webcam                                                                       |                       |
@@ -42,6 +42,9 @@ npx tsc --noEmit       # type-check src/, tests/, configs
 npm run lint           # ESLint (typescript-eslint recommended + prettier compat)
 npm run format         # Prettier write  (format:check to verify)
 npm run test           # Vitest, tests/**/*.test.ts
+npm run e2e [-- --build] [--headed]
+                       # drives the real app in Chrome: uploads test-img/*.jpg, toggles classes/settings,
+                       # WASM + YOLOv8s, cache; --build tests the production bundle. Report: .cache/e2e/
 npm run bench -- --plan smoke|full|rect|release [--shots] [--headed]
                        # in-browser ORT benchmark via bench.html + installed Chrome (puppeteer-core)
 .venv-export/bin/python scripts/export_models.py --set release|benchmark   # see scripts/export-model.md
@@ -65,23 +68,32 @@ Tooling notes:
 src/
   settings/   Plain data. SettingsSchema is THE source of truth for user settings (label, range,
               default, group main/advanced/debug). SettingsStore holds state and sanitizes; nothing persisted.
-  input/      Media sources (DOM allowed): VideoPlayer, FrameSampler (rVFC, rate-capped capture to
-              VideoFrame/ImageBitmap), MediaFiles (pure upload validation, size limits), MediaTypes.
-  inference/  No DOM. FrameGate (one frame in flight, drop when busy); ortRuntime (loads the WebGPU or
-              WASM onnxruntime-web build on demand); preprocess (letterbox square|rect, RGBA→CHW);
-              postprocess (YOLOv8 decode, class filter AFTER argmax, class-aware NMS, unletterbox);
-              cocoClasses. The app's inference worker comes in Phase 2.
+              classGroups (the brief's 9 groups; every COCO class in exactly one) and
+              ClassSelectionStore (enabled classes + mask; default People/Animals/Transportation).
+  input/      Media sources (DOM allowed): InputSource interface; ImageSource (decode once to an
+              ImageBitmap, capture = bitmap copy); VideoPlayer, FrameSampler (rVFC, rate-capped capture);
+              MediaFiles (pure upload validation, size limits), MediaTypes.
+  inference/  No DOM. inference.worker.ts (+ typed InferenceMessages, main-thread InferenceClient):
+              plans backend+file (modelPlan), loads runtime (ortRuntime), fetches the model through
+              modelCache (Cache API, SHA-256 verified, progress), warms up WebGPU, then detects:
+              rect letterbox → ORT → decode (score floor 0.05) → class-aware NMS → normalized boxes.
+              FrameGate (one frame in flight); preprocess; postprocess (+ filterDetections); cocoClasses.
   bench/      Phase 1 spike (bench.html, dev server only, not in the build): one ORT session per
               worker, per-stage timing, draws detections; driven by scripts/bench/runBrowserBench.ts.
   tracking/   No DOM. AssignmentSolver (Hungarian). Tracker in Phase 4.
-  counting/   No DOM. Per-class totals / current-frame counts (Phase 2+).
+  counting/   No DOM. countByClass, English summary ("3 people, 2 dogs, 1 car").
   rendering/  Canvas 2D only. OverlayRenderer: one DPR-sized canvas over the media, layers get the
-              letterboxed media rect (utils/geometry containRect); rAF loop while playing.
+              letterboxed media rect + pixelRatio; rAF loop while playing. DetectionLayer (boxes +
+              "class NN%" labels, raw detections dashed); classColors (fixed color per class).
   ui/         Plain DOM panels: SettingsPanel (generated from the schema; Advanced/Debug <details>
-              closed on every load; Reset to defaults), UploadPanel, PlaybackControls.
+              closed on every load; Reset to defaults), ClassGroupPanel (tri-state groups, expandable),
+              CountsPanel (Total / Current frame / Reset), ModelStatusPanel (progress, notes, Retry),
+              DebugReadout, UploadPanel, PlaybackControls.
   app/        App.ts: the only module that knows everything; builds the layout and wires services.
   utils/      Pure helpers: geometry (top-left Box, IoU, contain/fit), format, math.
 ```
+
+**Detection data flow:** the worker returns everything above the 0.05 score floor after class-aware NMS; the main thread applies the confidence threshold and class mask (`filterDetections`). That is provably equivalent to filtering before NMS (tested), so slider and class changes never need a new inference run. IoU / input size re-run detection; model size / backend reload the model.
 
 Boxes use a top-left origin (`Box {x, y, width, height}`), in pixels or normalized 0..1 as each API states. Final `Detection` boxes are normalized to the source frame.
 

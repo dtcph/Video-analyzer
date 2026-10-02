@@ -1,12 +1,12 @@
 /// <reference lib="webworker" />
 import type * as Ort from "onnxruntime-web";
 import { NUM_COCO_CLASSES } from "../inference/cocoClasses";
-import type { LoadedRuntime } from "../inference/ortRuntime";
-import { loadRuntime } from "../inference/ortRuntime";
 import { decodeYoloV8, decodeYoloV8Nms, nonMaxSuppression, toSourceDetections } from "../inference/postprocess";
 import type { Detection } from "../inference/postprocess";
 import { LETTERBOX_FILL, letterboxTransform, rgbaToPlanarRgb } from "../inference/preprocess";
 import type { BenchRequest, BenchResponse, BenchRun } from "./BenchMessages";
+import type { BenchRuntime } from "./benchRuntime";
+import { loadBenchRuntime } from "./benchRuntime";
 
 /**
  * Phase 1 spike / benchmark worker: one ORT session, timed per stage.
@@ -14,7 +14,7 @@ import type { BenchRequest, BenchResponse, BenchRun } from "./BenchMessages";
  * - inference: session.run, including upload and output download;
  * - postprocess: decode, class-aware NMS, map back to the source frame.
  */
-let runtime: LoadedRuntime | null = null;
+let runtime: BenchRuntime | null = null;
 let session: Ort.InferenceSession | null = null;
 let canvas: OffscreenCanvas | null = null;
 let ctx: OffscreenCanvasRenderingContext2D | null = null;
@@ -27,7 +27,7 @@ function post(message: BenchResponse): void {
 async function init(message: Extract<BenchRequest, { type: "init" }>): Promise<void> {
     await session?.release();
     session = null;
-    runtime = await loadRuntime(message.runtime, message.numThreads);
+    runtime = await loadBenchRuntime(message.runtime, message.numThreads);
 
     const fetchStart = performance.now();
     const response = await fetch(message.modelUrl);
@@ -43,7 +43,7 @@ async function init(message: Extract<BenchRequest, { type: "init" }>): Promise<v
     post({
         type: "ready",
         runtime: message.runtime,
-        threads: runtime.ort.env.wasm.numThreads ?? 0,
+        threads: runtime.threads,
         crossOriginIsolated: self.crossOriginIsolated,
         fetchMs,
         sessionCreateMs: performance.now() - createStart,
