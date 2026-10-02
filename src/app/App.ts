@@ -6,6 +6,7 @@ import { UploadPanel } from "../ui/UploadPanel";
 import { Timeline } from "../ui/Timeline";
 import { PlaybackControls } from "../ui/PlaybackControls";
 import { AnalysisControls } from "../ui/AnalysisControls";
+import { SettingsPanel } from "../ui/SettingsPanel";
 import { TrackingControls } from "../ui/TrackingControls";
 import { TrackPanel } from "../ui/TrackPanel";
 import { Inspector } from "../ui/Inspector";
@@ -36,6 +37,7 @@ export class App {
   private timeline = new Timeline();
   private playbackControls = new PlaybackControls();
   private analysisControls = new AnalysisControls();
+  private settingsPanel = new SettingsPanel(this.state.settingsStore);
   private trackingControls = new TrackingControls();
   private trackPanel = new TrackPanel();
   private annotationPanel = new AnnotationPanel();
@@ -82,6 +84,7 @@ export class App {
     sidebar.className = "app-sidebar";
     sidebar.appendChild(this.metadataPanel.element);
     sidebar.appendChild(this.analysisControls.element);
+    sidebar.appendChild(this.settingsPanel.element);
     sidebar.appendChild(this.trackingControls.element);
     sidebar.appendChild(this.trackPanel.element);
     sidebar.appendChild(this.annotationPanel.element);
@@ -174,7 +177,7 @@ export class App {
       this.renderer.setLatestFrameResult(result);
       this.analysisControls.updateExposureStats(result.exposure);
       this.analysisControls.updateBlobStats(result.blobs);
-      this.analysisControls.updateDetectorDebug(result.detectorDebug);
+      this.settingsPanel.updateDetectorDebug(result.detectorDebug);
     });
 
     this.state.analysisWorkerClient.onStatsUpdate((stats) => {
@@ -195,18 +198,26 @@ export class App {
     this.analysisControls.onToggleExposureMode((mode, enabled) => {
       this.renderer.setExposureVisibility({ [mode]: enabled });
     });
-    this.analysisControls.onChangeThreshold((partial) => {
-      this.state.analysisEngine.updateSettings(partial);
-      this.state.analysisWorkerClient.updateSettings(partial);
+    this.state.settingsStore.onChange(({ changed }) => {
+      // A `mode` change reaches the worker like any other setting; its
+      // AnalysisEngine swaps the strategy and resets detector state there.
+      this.state.analysisEngine.updateSettings(changed);
+      this.state.analysisWorkerClient.updateSettings(changed);
+      if (changed.sampleFps !== undefined) {
+        this.frameSampler?.configure(changed.sampleFps, this.frameRate);
+      }
 
       // While paused/scrubbing, nothing resubmits the current frame on
       // its own — the worker only sees new frames from playback or the
       // timeupdate handler. Re-capture the frame under the playhead so
-      // a slider drag reflects in the overlays immediately rather than
-      // waiting for the next seek or play.
+      // a settings change reflects in the overlays immediately rather
+      // than waiting for the next seek or play.
       if (this.player.getState() !== "playing") {
         void this.frameSampler?.captureNow();
       }
+    });
+    this.settingsPanel.onToggleDebugView((view, enabled) => {
+      this.renderer.setExposureVisibility({ [view]: enabled });
     });
     this.analysisControls.onToggleAnalysis(() => this.toggleAnalysis());
 
@@ -282,6 +293,7 @@ export class App {
       this.annotationPanel.show(trackId, annotation);
 
       this.analysisControls.setOpen(false);
+      this.settingsPanel.setOpen(false);
       this.trackingControls.setOpen(false);
       this.trackPanel.setOpen(true);
       this.annotationPanel.setOpen(true);
@@ -341,13 +353,26 @@ export class App {
     // setting a user has dragged away from its default should snap back
     // too, both the underlying settings objects and the panels showing
     // them, so a fresh video starts from a genuinely clean slate.
-    this.state.analysisEngine.resetSettings();
-    this.state.analysisWorkerClient.updateSettings(this.state.analysisEngine.getSettings());
+    // The mode itself is kept; its preset is restored (the store listener
+    // pushes it to the engine and worker).
+    this.state.settingsStore.resetToDefaults();
     this.state.blobTracker.resetSettings();
     this.analysisControls.resetToDefaults();
+    this.settingsPanel.resetDebugViews();
     this.trackingControls.resetToDefaults();
     this.renderer.setLayerVisibility({ analysis: true, tracking: true, annotations: true });
-    this.renderer.setExposureVisibility({ clip: true, highlight: true, crushedBlacks: true, blobs: true });
+    this.renderer.setExposureVisibility({
+      clip: true,
+      highlight: true,
+      crushedBlacks: true,
+      blobs: true,
+      rawDiff: false,
+      compensatedDiff: false,
+      motionMask: false,
+      rejectedCandidates: false,
+      sparseFlow: false,
+      detectorHud: false,
+    });
     this.renderer.setDebugMode(false);
 
     this.stageEl.classList.add("is-empty");

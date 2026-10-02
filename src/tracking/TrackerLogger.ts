@@ -22,7 +22,6 @@ class TrackerLogger {
         const body = Object.entries(fields)
             .map(([key, value]) => `${key}: ${value}`)
             .join("\n");
-        // eslint-disable-next-line no-console -- intentional, gated by `enabled`
         console.log(`[TRACK ${String(trackId).padStart(2, "0")}]\n${body}`);
     }
 

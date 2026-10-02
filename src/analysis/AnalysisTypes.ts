@@ -1,5 +1,6 @@
 import type { BlobData } from "../tracking/TrackTypes";
 import type { GlobalMotion } from "./GlobalMotionEstimator";
+import type { AnalysisModeId } from "../settings/AnalysisModes";
 
 export interface ExposureData {
     rgbClipRatio: number;
@@ -90,6 +91,13 @@ export interface FrameAnalysis {
 }
 
 export interface AnalysisSettings {
+    /**
+     * Which AnalysisStrategy the worker runs (see src/analysis/strategies/).
+     * Changing it swaps the strategy and resets detector state. The app's
+     * per-mode defaults live in src/settings/SettingsSchema.ts (presetFor),
+     * not in DEFAULT_ANALYSIS_SETTINGS below.
+     */
+    mode: AnalysisModeId;
     /** Motion (frame-to-frame grayscale difference) binarization threshold for blob detection, 0..1 (mapped to 0..255 for OpenCV) — see BlobDetector. Not a brightness cutoff: a blob is a region that changed since the previous analyzed frame, not a region of a particular intensity. */
     threshold: number;
     /** Minimum blob area, normalized as a fraction of total frame area. */
@@ -147,7 +155,15 @@ export interface AnalysisSettings {
 /** Max analysis-canvas footprint; actual per-video dimensions are fit within this preserving aspect ratio. */
 export const ANALYSIS_RESOLUTION_BUDGET = { width: 960, height: 540 };
 
+/**
+ * Detector-level defaults — what BlobDetector uses when driven directly
+ * (scripts/detectorScenarios.ts) and the base the harness's V1 profiles
+ * start from. The APP starts from the selected mode's preset instead
+ * (SettingsSchema.presetFor), which e.g. turns camera compensation off for
+ * the steady mode.
+ */
 export const DEFAULT_ANALYSIS_SETTINGS: AnalysisSettings = {
+    mode: "steady",
     // These four were tuned for the old brightness-threshold detector
     // (a region above/below a fixed intensity cutoff, typically a solid
     // filled shape) and don't transfer to a motion-diff signal, whose

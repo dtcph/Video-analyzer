@@ -2,5 +2,8 @@ node_modules/
 dist/
 .DS_Store
 *.local
-CLAUDE.md
 test-vid/
+# Evaluation output: only runs.json + summary.md of the committed baseline are versioned;
+# per-frame <clip>__<profile>.json files are regenerated on demand with `npm run eval`.
+docs/v2/results/latest/
+docs/v2/results/**/*__*.json

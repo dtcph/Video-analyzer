@@ -126,15 +126,6 @@
     color: var(--accent);
 }
 
-.blob-controls-row {
-    display: flex;
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 10px;
-    padding-top: 10px;
-    border-top: 1px solid var(--border);
-}
-
 .blob-stats {
     display: flex;
     flex-direction: column;
@@ -500,4 +491,184 @@
 .annotation-text-input:focus {
     outline: none;
     border-color: var(--accent-dim);
+}
+
+/* ---- Detection settings (SettingsPanel, generated from SettingsSchema) ---- */
+
+.settings-panel {
+    padding: 10px 12px;
+    background: var(--panel-bg);
+    border: 1px solid var(--border);
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-dim);
+}
+
+/* makeCollapsible() moves the panel's content into .panel-body, so the column layout lives there. */
+.settings-panel .panel-body {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.mode-selector {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.segmented {
+    display: flex;
+    border: 1px solid var(--border);
+}
+
+.segmented[hidden] {
+    display: none;
+}
+
+.segmented button {
+    flex: 1;
+    background: transparent;
+    border: none;
+    border-right: 1px solid var(--border);
+    color: var(--text-dim);
+    font-family: var(--mono);
+    font-size: 12px;
+    padding: 6px 8px;
+    cursor: pointer;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.segmented button:last-child {
+    border-right: none;
+}
+
+.segmented button:hover:not(.is-active) {
+    color: var(--text);
+}
+
+.segmented button.is-active {
+    background: var(--accent-dim);
+    color: var(--accent);
+}
+
+.segmented.is-sub {
+    margin-left: 16px;
+}
+
+.segmented.is-sub button {
+    font-size: 11px;
+    padding: 4px 6px;
+}
+
+.settings-group,
+.settings-section-body {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.settings-control[hidden] {
+    display: none;
+}
+
+.settings-control-header {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 2px;
+}
+
+.settings-value {
+    color: var(--accent);
+}
+
+.settings-control input[type="range"] {
+    width: 100%;
+    accent-color: var(--accent);
+}
+
+.settings-control select {
+    width: 100%;
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    font-family: var(--mono);
+    font-size: 12px;
+    padding: 4px;
+}
+
+.settings-check {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+}
+
+.settings-check input {
+    accent-color: var(--accent);
+}
+
+.settings-section {
+    border-top: 1px solid var(--border);
+    padding-top: 8px;
+}
+
+.settings-section[hidden] {
+    display: none;
+}
+
+.settings-section summary {
+    cursor: pointer;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text);
+    list-style: none;
+}
+
+.settings-section summary::-webkit-details-marker {
+    display: none;
+}
+
+.settings-section summary::before {
+    content: "▸ ";
+    color: var(--text-dim);
+}
+
+.settings-section[open] summary::before {
+    content: "▾ ";
+}
+
+.settings-section[open] .settings-section-body {
+    padding-top: 10px;
+}
+
+.settings-debug-views {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 16px;
+}
+
+.settings-reset-button {
+    align-self: flex-start;
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    font-family: var(--mono);
+    font-size: 12px;
+    padding: 6px 14px;
+    cursor: pointer;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.settings-reset-button:hover:not(:disabled) {
+    border-color: var(--accent-dim);
+    color: var(--accent);
+}
+
+.settings-reset-button:disabled {
+    cursor: default;
+    opacity: 0.5;
 }

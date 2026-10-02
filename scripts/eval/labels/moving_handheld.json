@@ -1,0 +1,20 @@
+{
+ "clip": "moving_handheld.mp4",
+ "sampleFps": 12,
+ "format": "Boxes are [x, y, width, height], normalized 0..1 on the analysis frame. index = harness sample index at sampleFps (identical to ffmpeg fps=12 frame n). movers: something genuinely moving in the world. ignore: ambiguous (stopped vehicles, standing/sitting people, too small to judge) - blobs there count neither way. roi: only blobs whose center is inside it are scored (omitted = whole frame). Every other blob in the roi is a false positive. Drafted by Claude from frame pairs 0.5 s apart (motion judged against the background); review with `npm run overlay`.",
+ "notes": "Camera walks backwards ahead of a hiker. The hiker is the only mover; fence posts and wind-blown grass are false positives.",
+ "frames": [
+  { "index": 12, "movers": [  [   0.455,   0.235,   0.09,   0.3  ] ], "ignore": []
+  },
+  { "index": 36, "movers": [  [   0.46,   0.22,   0.09,   0.335  ] ], "ignore": []
+  },
+  { "index": 60, "movers": [  [   0.46,   0.225,   0.09,   0.37  ] ], "ignore": []
+  },
+  { "index": 84, "movers": [  [   0.47,   0.22,   0.11,   0.375  ] ], "ignore": []
+  },
+  { "index": 108, "movers": [  [   0.425,   0.2,   0.135,   0.465  ] ], "ignore": []
+  },
+  { "index": 132, "movers": [  [   0.3,   0.19,   0.2,   0.62  ] ], "ignore": []
+  }
+ ]
+}

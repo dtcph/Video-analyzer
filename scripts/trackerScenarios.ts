@@ -306,7 +306,7 @@ test("gradual convergence: does mergeDuplicateActiveTracks fire on two still-dis
 // stationary/independently-moving tracks can be outvoted.
 // ---------------------------------------------------------------------------
 test("camera-motion confidence when most tracks move independently together (adversarial case)", () => {
-    const { trackManager, blobTracker } = setup();
+    const { blobTracker } = setup();
     // 4 blobs moving right in lockstep (independent objects, e.g. a
     // flock/crowd/school-of-fish scenario — NOT camera motion) + 1 truly
     // stationary blob, which should be the tie-breaker telling the

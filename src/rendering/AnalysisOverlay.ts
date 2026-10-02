@@ -16,6 +16,8 @@ export interface AnalysisVisibility {
   rejectedCandidates: boolean;
   /** Draws the motion-field path's sparse optical-flow field (tracked feature points + their raw displacement, distinct from the per-region residual arrows `renderRegionalMotionField` already draws) — only meaningful when AnalysisSettings.cameraMotionMode is "motion-field" (GlobalMotion.vectors is undefined/empty under the legacy path). See SceneMotionEstimator's module doc for why this exists: seeing the raw tracked points is what makes "why did the system think this region was/wasn't camera motion" answerable, not just the final regional summary. */
   sparseFlow: boolean;
+  /** Text HUD (camera-motion vector, model, inliers, residual, parallax, sparse-flow stats) plus the per-region residual arrows. Previously only drawn while one of the diff/mask thumbnails was on; now its own toggle in the Debug section. */
+  detectorHud: boolean;
 }
 
 const CLIP_COLOR = [255, 60, 60, 170] as const;
@@ -238,7 +240,8 @@ export class AnalysisOverlay {
     }
 
     const motion = debug.globalMotion;
-    if (visibility.rawDiff || visibility.compensatedDiff || visibility.motionMask) {
+    if (visibility.sparseFlow) this.renderSparseFlow(motion.vectors, motion.residualVectors, width, height);
+    if (visibility.detectorHud) {
       this.ctx.save();
       this.ctx.font = "bold 11px monospace";
       this.ctx.fillStyle = DEBUG_HUD_COLOR;
@@ -260,7 +263,6 @@ export class AnalysisOverlay {
       }
       this.ctx.restore();
 
-      if (visibility.sparseFlow) this.renderSparseFlow(motion.vectors, motion.residualVectors, width, height);
       this.renderRegionalMotionField(motion.regionalMotion, motion.gridRows, motion.gridCols, width, height);
     }
   }

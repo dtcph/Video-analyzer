@@ -12,10 +12,47 @@ import type { MotionCandidate } from "./MotionCandidate";
 export type OpenCv = CV & { onRuntimeInitialized?: () => void; Mat?: unknown };
 export type CvMat = ReturnType<OpenCv["matFromImageData"]>;
 
+/** Background-motion estimate between two consecutive grayscale frames — supplied by the active AnalysisStrategy (see strategies/AnalysisStrategy.ts). */
+export type CameraMotionEstimator = (context: {
+    cv: OpenCv;
+    previous: CvMat;
+    current: CvMat;
+    width: number;
+    height: number;
+    settings: AnalysisSettings;
+}) => GlobalMotion;
+
+/** V1 behavior, used when no strategy supplies an estimator (e.g. scripts/detectorScenarios.ts driving BlobDetector directly): settings.cameraMotionMode picks the estimator. */
+const settingsBasedEstimator: CameraMotionEstimator = ({ cv, previous, current, width, height, settings }) =>
+    settings.cameraMotionMode === "motion-field"
+        ? estimateMotionField(cv, previous, current, width, height, settings.detectorDebugEnabled)
+        : estimateGlobalMotion(cv, previous, current, width, height, settings.detectorDebugEnabled);
+
 /** Threshold multiplier for the small-object path relative to the normal path's own AnalysisSettings.threshold — lower, since it exists specifically to catch subtler motion the normal path's threshold would miss. */
 const SMALL_PATH_THRESHOLD_FACTOR = 0.75;
 /** Small-path minimum area, as a fraction of the normal path's own minBlobArea — the small path only needs to cover the gap below the normal path's floor; anything at or above minBlobArea is already the normal path's territory (and any small-path detection there gets deduped away — see dedupeSmallPathCoveredByNormal). */
 const SMALL_PATH_MIN_AREA_FACTOR = 0.15;
+
+/**
+ * Cheap per-frame instrumentation, always recorded (one countNonZero plus a
+ * few counters — negligible next to the pipeline itself) so offline tooling
+ * like scripts/evaluateClips.ts can measure the pipeline without paying for
+ * detectorDebugEnabled's full-frame buffers or its extra diagnostic fits.
+ * Read via BlobDetector.getLastFrameStats(); never sent to the UI.
+ */
+export interface DetectorFrameStats {
+    /** Fraction of the frame (0..1) set in the normal-path motion mask, after threshold + morphology, before candidate filtering. */
+    motionFraction: number;
+    /** Whether camera compensation was actually applied this frame (GlobalMotion.valid). */
+    compensationApplied: boolean;
+    cameraDx: number;
+    cameraDy: number;
+    cameraConfidence: number;
+    acceptedCandidates: number;
+    rejectedCandidates: number;
+    /** Count of rejected candidates per MotionCandidateFilter rejection reason. */
+    rejectionReasons: Record<string, number>;
+}
 
 /** Result of BlobDetector.detect() — blobs plus, only when requested, the pipeline internals behind them. See AnalysisSettings.detectorDebugEnabled. */
 export interface DetectionResult {
@@ -137,6 +174,12 @@ export class BlobDetector {
     private prevGray: CvMat | null = null;
     /** Detection-level temporal filter shared across both detection paths — see MotionPersistenceTracker's module doc for why this is not a duplicate of Track/TrackManager. */
     private readonly persistenceTracker = new MotionPersistenceTracker();
+    private lastFrameStats: DetectorFrameStats | null = null;
+
+    /** Instrumentation for the most recent detect() call — null for a frame with no previous frame to diff against. See DetectorFrameStats. */
+    getLastFrameStats(): DetectorFrameStats | null {
+        return this.lastFrameStats;
+    }
 
     isReady(): boolean {
         return this.cv !== null;
@@ -147,6 +190,7 @@ export class BlobDetector {
         this.prevGray?.delete();
         this.prevGray = null;
         this.persistenceTracker.reset();
+        this.lastFrameStats = null;
     }
 
     private ensureReady(): Promise<OpenCv> {
@@ -160,12 +204,16 @@ export class BlobDetector {
         return this.loading;
     }
 
-    async detect(imageData: ImageData, settings: AnalysisSettings): Promise<DetectionResult> {
+    /**
+     * `estimateCameraMotion` is only consulted when settings.cameraCompensationEnabled
+     * is on; without one, settings.cameraMotionMode picks the V1 estimator.
+     */
+    async detect(imageData: ImageData, settings: AnalysisSettings, estimateCameraMotion: CameraMotionEstimator = settingsBasedEstimator): Promise<DetectionResult> {
         const cv = await this.ensureReady();
-        return this.detectBlobs(cv, imageData, settings);
+        return this.detectBlobs(cv, imageData, settings, estimateCameraMotion);
     }
 
-    private detectBlobs(cv: OpenCv, imageData: ImageData, settings: AnalysisSettings): DetectionResult {
+    private detectBlobs(cv: OpenCv, imageData: ImageData, settings: AnalysisSettings, estimateCameraMotion: CameraMotionEstimator): DetectionResult {
         const { width, height } = imageData;
         const frameArea = width * height;
 
@@ -195,13 +243,12 @@ export class BlobDetector {
             if (!previous || !hasPrevFrame) {
                 previous?.delete();
                 this.prevGray = gray.clone();
+                this.lastFrameStats = null;
                 return { blobs: [] };
             }
 
             const globalMotion: GlobalMotion = settings.cameraCompensationEnabled
-                ? settings.cameraMotionMode === "motion-field"
-                    ? estimateMotionField(cv, previous, gray, width, height, settings.detectorDebugEnabled)
-                    : estimateGlobalMotion(cv, previous, gray, width, height, settings.detectorDebugEnabled)
+                ? estimateCameraMotion({ cv, previous, current: gray, width, height, settings })
                 : NO_GLOBAL_MOTION;
 
             let diffSource: CvMat = previous;
@@ -266,6 +313,19 @@ export class BlobDetector {
             const { accepted, rejected } = filterCandidates(allCandidates, frameArea, { globalMotion, width, height });
 
             const blobs = accepted.map((candidate, index) => toBlobData(candidate, index + 1, width, height));
+
+            const rejectionReasons: Record<string, number> = {};
+            for (const { reason } of rejected) rejectionReasons[reason] = (rejectionReasons[reason] ?? 0) + 1;
+            this.lastFrameStats = {
+                motionFraction: cv.countNonZero(normalBinary) / frameArea,
+                compensationApplied: globalMotion.valid,
+                cameraDx: globalMotion.dx,
+                cameraDy: globalMotion.dy,
+                cameraConfidence: globalMotion.confidence,
+                acceptedCandidates: accepted.length,
+                rejectedCandidates: rejected.length,
+                rejectionReasons
+            };
 
             const debug: DetectorDebugInfo | undefined = settings.detectorDebugEnabled
                 ? {
