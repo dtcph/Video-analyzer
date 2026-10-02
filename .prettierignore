@@ -6,3 +6,5 @@ test-img/
 public/
 package-lock.json
 LICENSE
+.cache/
+.venv-export/

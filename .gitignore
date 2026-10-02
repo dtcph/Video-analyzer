@@ -12,3 +12,7 @@ test-img/
 
 .DS_Store
 *.local
+
+# Model export toolchain and caches (scripts/export-model.md)
+.venv-export/
+.cache/

@@ -15,8 +15,8 @@ Work proceeds in phases 0–7. Each phase ends with a report, and the next one s
 
 | phase | content                                                                      | status                |
 | ----- | ---------------------------------------------------------------------------- | --------------------- |
-| 0     | archive old project, scaffold, port reusable modules                         | done, awaiting review |
-| 1     | spike: model export, ORT-Web on WebGPU/WASM, benchmarks, `docs/decisions.md` |                       |
+| 0     | archive old project, scaffold, port reusable modules                         | done                  |
+| 1     | spike: model export, ORT-Web on WebGPU/WASM, benchmarks, `docs/decisions.md` | done, awaiting review |
 | 2     | image detection end-to-end                                                   |                       |
 | 3     | realtime video                                                               |                       |
 | 4     | tracking + total counts                                                      |                       |
@@ -42,6 +42,10 @@ npx tsc --noEmit       # type-check src/, tests/, configs
 npm run lint           # ESLint (typescript-eslint recommended + prettier compat)
 npm run format         # Prettier write  (format:check to verify)
 npm run test           # Vitest, tests/**/*.test.ts
+npm run bench -- --plan smoke|full|rect|release [--shots] [--headed]
+                       # in-browser ORT benchmark via bench.html + installed Chrome (puppeteer-core)
+.venv-export/bin/python scripts/export_models.py --set release|benchmark   # see scripts/export-model.md
+.venv-export/bin/python scripts/bench/compare_variants.py                  # accuracy vs PyTorch reference
 ```
 
 **Rule:** `npx tsc --noEmit`, `npm run lint` and `npm run test` must all pass after every change set.
@@ -51,6 +55,7 @@ Tooling notes:
 - TypeScript is pinned to `~6.0`, because typescript-eslint 8.x supports `<6.1` (TS 7 is out but unsupported there).
 - DOM tests use `// @vitest-environment happy-dom`.
 - ESLint gives `src/` browser and worker globals only, so Node APIs can't leak in.
+- `scripts/*.ts` run directly with Node's type stripping (no tsx): erasable TS syntax only, `.ts` import extensions.
 
 ## Layering rule
 
@@ -62,7 +67,12 @@ src/
               default, group main/advanced/debug). SettingsStore holds state and sanitizes; nothing persisted.
   input/      Media sources (DOM allowed): VideoPlayer, FrameSampler (rVFC, rate-capped capture to
               VideoFrame/ImageBitmap), MediaFiles (pure upload validation, size limits), MediaTypes.
-  inference/  No DOM. FrameGate: one frame in flight, drop when busy. Worker, pre/postprocess, NMS later.
+  inference/  No DOM. FrameGate (one frame in flight, drop when busy); ortRuntime (loads the WebGPU or
+              WASM onnxruntime-web build on demand); preprocess (letterbox square|rect, RGBA→CHW);
+              postprocess (YOLOv8 decode, class filter AFTER argmax, class-aware NMS, unletterbox);
+              cocoClasses. The app's inference worker comes in Phase 2.
+  bench/      Phase 1 spike (bench.html, dev server only, not in the build): one ORT session per
+              worker, per-stage timing, draws detections; driven by scripts/bench/runBrowserBench.ts.
   tracking/   No DOM. AssignmentSolver (Hungarian). Tracker in Phase 4.
   counting/   No DOM. Per-class totals / current-frame counts (Phase 2+).
   rendering/  Canvas 2D only. OverlayRenderer: one DPR-sized canvas over the media, layers get the
@@ -73,11 +83,20 @@ src/
   utils/      Pure helpers: geometry (top-left Box, IoU, contain/fit), format, math.
 ```
 
-Boxes use a top-left origin (`Box {x, y, width, height}`), in pixels or normalized 0..1 as each API states.
+Boxes use a top-left origin (`Box {x, y, width, height}`), in pixels or normalized 0..1 as each API states. Final `Detection` boxes are normalized to the source frame.
+
+## Model and runtime (Phase 1 decisions, see `docs/decisions.md`, numbers in `docs/benchmarks.md`)
+
+- `public/models/` (committed, reproducible export, SHA-256 in `manifest.json`): `yolov8n-640-dyn-fp16.onnx` (default), `yolov8n-640-dyn.onnx` (FP32 fallback for WebGPU without `shader-f16`), `yolov8s-640-dyn-fp16.onnx` ("Accurate"). Dynamic H/W; output `[1, 84, N]`, NMS in JS.
+- Default input: 640 long side, **rect** letterbox (short side padded to a multiple of 32, 640x384 for 16:9). Matches Ultralytics' predictions exactly.
+- Runtime: onnxruntime-web **1.30.0 (pinned)**. Native WebGPU EP (`onnxruntime-web/webgpu`) when an adapter exists, else plain WASM (`onnxruntime-web/wasm`) with `clamp(cores/2, 1, 8)` threads. Threads need COOP/COEP.
+- Tracker (Phase 4, user decision): associate across classes with an IoU penalty for a class mismatch; majority-vote class and count-once-at-confirmation still need the user's confirmation.
+- Hosting: Vercel (user deploys later). `vercel.json` sets COOP/COEP (Phase 7). Hobby limit 100 MB static files; `dist/` budget ~81 MB, so no extra model variants and no JSEP build in the app bundle.
+- Benchmark candidates live in `.cache/models-bench/` (gitignored, outside `public/` so they never reach `dist/`).
 
 ## Stack
 
-TypeScript, Vite 8, vanilla DOM/CSS, Canvas 2D, Web Workers, Vitest 5, ESLint 10, Prettier.
+TypeScript, Vite 8, vanilla DOM/CSS, Canvas 2D, Web Workers, onnxruntime-web, Vitest 5, ESLint 10, Prettier, puppeteer-core (dev: drives the installed Chrome for browser benchmarks). Python (export only, in `.venv-export/`): see `scripts/requirements-export.txt`.
 
 - New libraries are allowed when they clearly help; give one sentence of justification per dependency.
 - Ask the user before adding any UI framework.
@@ -86,8 +105,8 @@ TypeScript, Vite 8, vanilla DOM/CSS, Canvas 2D, Web Workers, Vitest 5, ESLint 10
 
 ## License
 
-The project is AGPL-3.0 (`LICENSE`, `"license": "AGPL-3.0-only"`), because Ultralytics YOLOv8 code and weights are AGPL-3.0. The README must credit Ultralytics YOLOv8 with the license and a source link. Never ship model files or code without the notice.
+The project is AGPL-3.0 (`LICENSE`, `"license": "AGPL-3.0-only"`), because Ultralytics YOLOv8 code and weights are AGPL-3.0. The README must credit Ultralytics YOLOv8 with the license and a source link. Copyright holder: "Paul". AGPL §13: the site footer links to the public repo `github.com/dtcph/Video-analyzer` (`SOURCE_URL` in App.ts). Never ship model files or code without the notice.
 
 ## Test media
 
-`test-vid/` (clips) and `test-img/` (stills, Phase 1) are gitignored local media. Never commit them.
+`test-vid/` (clips) and `test-img/` (stills, Phase 1) are gitignored local media. Never commit them. Several clips are 4K (the product targets 1080p). Stills: `moving_car_t2.0.jpg`, `steady-2_t1.0.jpg`, `steady_t4.9.jpg` (see `docs/benchmarks.md`).

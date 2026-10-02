@@ -8,6 +8,9 @@ import { SettingsPanel } from "../ui/SettingsPanel";
 import { UploadPanel } from "../ui/UploadPanel";
 import type { Size } from "../utils/geometry";
 
+/** AGPL §13: every user of the site must be offered the source. */
+const SOURCE_URL = "https://github.com/dtcph/Video-analyzer";
+
 /**
  * Top-level wiring: builds the DOM shell, owns the services and connects
  * UI events to them. The only module that knows about all the pieces.
@@ -77,8 +80,10 @@ export class App {
         const footer = document.createElement("footer");
         footer.className = "app-footer";
         footer.innerHTML = `
-            Runs entirely in your browser. Free software under the
-            <a href="https://www.gnu.org/licenses/agpl-3.0.html" rel="noopener">GNU AGPL-3.0</a>.
+            Runs entirely in your browser. Detection by
+            <a href="https://github.com/ultralytics/ultralytics" rel="noopener">Ultralytics YOLOv8</a> (AGPL-3.0).
+            Free software under the <a href="https://www.gnu.org/licenses/agpl-3.0.html" rel="noopener">GNU AGPL-3.0</a>:
+            <a href="${SOURCE_URL}" rel="noopener">source code</a>.
         `;
 
         this.root.replaceChildren(header, layout, footer);

@@ -19,6 +19,10 @@ npm run lint
 
 ## License and model credit
 
-This project is free software under the **GNU Affero General Public License v3.0**; see [LICENSE](LICENSE).
+Copyright (C) 2026 Paul
 
-Object detection uses **[Ultralytics YOLOv8](https://github.com/ultralytics/ultralytics)**, whose code and pretrained weights are licensed under AGPL-3.0. The model is COCO-pretrained. The source of this website, including how the model files are produced, is published in this repository.
+This program is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public License as published by the Free Software Foundation, version 3. It is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See [LICENSE](LICENSE) for the full text.
+
+Source code: https://github.com/dtcph/Video-analyzer
+
+Object detection uses **[Ultralytics YOLOv8](https://github.com/ultralytics/ultralytics)**, whose code and pretrained weights are licensed under AGPL-3.0. The model is pretrained on the [COCO dataset](https://cocodataset.org/) (annotations CC BY 4.0). The source of this website, including how the model files are produced ([scripts/export-model.md](scripts/export-model.md)), is published in this repository.
