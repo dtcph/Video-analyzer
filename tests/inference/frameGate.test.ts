@@ -54,4 +54,28 @@ describe("FrameGate", () => {
         gate.resetStats();
         expect(gate.getStats()).toEqual({ offered: 0, accepted: 0, dropped: 0, completed: 0, lastLatencyMs: 0 });
     });
+
+    it("acquireWhenIdle waits for the in-flight frame, then takes the slot without counting a drop", async () => {
+        const { gate } = gateWithClock();
+        gate.setOpen(true);
+        gate.tryAcquire();
+        let acquired = false;
+        const waiting = gate.acquireWhenIdle().then((ok) => (acquired = ok));
+        await Promise.resolve();
+        expect(acquired).toBe(false);
+        gate.release();
+        await waiting;
+        expect(acquired).toBe(true);
+        expect(gate.isBusy()).toBe(true);
+        expect(gate.getStats()).toMatchObject({ offered: 1, accepted: 2, dropped: 0 });
+    });
+
+    it("acquireWhenIdle resolves false when the gate closes", async () => {
+        const { gate } = gateWithClock();
+        gate.setOpen(true);
+        gate.tryAcquire();
+        const waiting = gate.acquireWhenIdle();
+        gate.setOpen(false);
+        expect(await waiting).toBe(false);
+    });
 });

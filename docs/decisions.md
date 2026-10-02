@@ -102,7 +102,14 @@ Evidence is in [benchmarks.md](benchmarks.md). All measurements come from one hi
 ## 7. Frame handling (Phases 3–5)
 
 - **One frame in flight** (`FrameGate`). Frames that arrive while busy are dropped and counted as dropped. Capture is rate-capped by Advanced "Max inference rate".
-- **Smooth overlays:** between inferred frames, boxes are drawn from the tracker's Kalman prediction at the displayed media time, so they don't hold still and then jump. Untracked raw detections (Debug view) are held.
+- **Sampling:** at the moment each frame is presented (`requestVideoFrameCallback`), capped by "Max inference rate". **Default 30** (Phase 3 measurement: 24–30 fps on WebGPU, ~18 on WASM, no dropped video frames on the M4 Max; slower devices drop more samples). Reversible: 15 gave 0% drops everywhere here.
+- **Smooth overlays:**
+  - Phase 3 holds the latest result for up to 0.5 s of media time, so it lags about one sampling interval.
+  - The overlay redraws on every presented video frame and never shows a result from before a seek.
+  - From Phase 4, boxes are drawn from the tracker's Kalman prediction at the displayed media time. Untracked raw detections (Debug view) stay held.
+- **Paused frame:** on pause, at the end, and after a seek while paused, the displayed frame itself is detected; it is never dropped. "Current frame" counts appear only once that result is in.
+  - Chrome can only capture a paused frame after it has been presented: `new VideoFrame(video)` and even `createImageBitmap(video)` fail right after loading, even at `readyState` 4. So capture waits for the next presented frame and retries.
+- **Preprocessing:** a GPU canvas for video frames (2–5 ms at 4K instead of ~15) and a CPU canvas for still images; see benchmarks.md, Phase 3.
 
 ## 8. Model files are committed to git
 

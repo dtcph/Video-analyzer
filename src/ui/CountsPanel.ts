@@ -7,8 +7,9 @@ export interface CountsView {
     totalTitle: string;
     /** null = nothing analyzed yet; shows `message` instead. */
     total: readonly ClassCount[] | null;
-    /** Current-frame section: shown only when given (paused video, Phase 3). */
+    /** Current-frame section: shown only when given (paused video). null shows `currentMessage`. */
     current?: readonly ClassCount[] | null;
+    currentMessage?: string;
     message?: string;
     busy?: boolean;
     /** Reset counts button (video and webcam, Phase 4). */
@@ -60,7 +61,7 @@ export class CountsPanel {
         this.element.classList.toggle("is-busy", Boolean(view.busy));
         fillCounts(this.totalBody, view.total, view.message);
         this.currentSection.hidden = view.current === undefined;
-        if (view.current !== undefined) fillCounts(this.currentBody, view.current, undefined);
+        if (view.current !== undefined) fillCounts(this.currentBody, view.current, view.currentMessage);
         this.resetButton.hidden = !view.canReset;
     }
 }

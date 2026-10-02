@@ -184,3 +184,58 @@ Annotated screenshots are regenerated with `node scripts/bench/runBrowserBench.t
 .venv-export/bin/python scripts/bench/compare_variants.py
 node scripts/bench/runBrowserBench.ts --plan full     # also: smoke, rect, release; --headed, --shots
 ```
+
+## Phase 3: realtime video (in the app)
+
+Measured 2026-10-02 with `npm run e2e:video -- --build`. Setup:
+
+- the production bundle in `vite preview`, headless Chrome 154, M4 Max;
+- YOLOv8n, rect 640 input;
+- 6 s of playback per run, starting at 0 s.
+
+Column meanings:
+
+- **inference fps:** results per second actually achieved.
+- **samples dropped:** sampled frames skipped because the previous frame was still in flight. This is the intended way to degrade, not an error.
+- **latency:** capture → result on the main thread.
+- **video frames dropped:** from `getVideoPlaybackQuality()`, i.e. playback smoothness.
+- **box lag:** media time of the drawn frame minus media time of the result its boxes come from.
+
+| clip                     | backend | max fps | inference fps | samples dropped | latency ms | pre / infer / post ms | video frames dropped | box lag p50 / p95 ms |
+| ------------------------ | ------- | ------- | ------------- | --------------- | ---------- | --------------------- | -------------------- | -------------------- |
+| moving_car (1080p30)     | WebGPU  | 15      | 15.0          | 0%              | 16         | 2.5 / 13.0 / 0.6      | 0 / 182              | 67 / 100             |
+| steady-2 (720p30)        | WebGPU  | 15      | 14.9          | 0%              | 23         | 5.2 / 16.4 / 0.8      | 0 / 179              | 66 / 100             |
+| moving_drone-2 (2160p30) | WebGPU  | 15      | 15.2          | 0%              | 15         | 4.9 / 8.7 / 0.8       | 0 / 183              | 67 / 100             |
+| moving_car               | WebGPU  | **30**  | 26.4          | 12%             | 18         | 2.7 / 14.5 / 0.7      | 0 / 183              | 34 / 100             |
+| steady-2                 | WebGPU  | **30**  | 29.2          | 11%             | 14         | 2.2 / 10.7 / 0.6      | 0 / 182              | 34 / 67              |
+| moving_drone-2           | WebGPU  | **30**  | 29.8          | 6%              | 12         | 2.6 / 9.1 / 0.5       | 0 / 183              | 33 / 67              |
+| moving_car               | WASM ×8 | 15      | 14.9          | 0%              | 21         | 1.9 / 19.1 / 0.4      | 0 / 183              | 67 / 100             |
+| steady-2                 | WASM ×8 | 15      | 15.1          | 0%              | 21         | 1.6 / 18.9 / 0.4      | 0 / 182              | 67 / 100             |
+| moving_drone-2           | WASM ×8 | 15      | 14.9          | 0%              | 23         | 3.2 / 19.4 / 0.4      | 0 / 183              | 67 / 100             |
+| moving_car               | WASM ×8 | **30**  | 18.1          | 40%             | 21         | 1.8 / 18.9 / 0.4      | 0 / 183              | 67 / 100             |
+| steady-2                 | WASM ×8 | **30**  | 17.8          | 39%             | 21         | 1.8 / 18.9 / 0.4      | 0 / 182              | 67 / 100             |
+| moving_drone-2           | WASM ×8 | **30**  | 16.8          | 40%             | 22         | 2.9 / 18.4 / 0.4      | 0 / 183              | 67 / 100             |
+
+**Correctness checks**, all 12 runs:
+
+- The paused frame is detected exactly: the result's media time equals the displayed frame's.
+- **0 stale draws** after seeking, both while paused (to 70%) and while playing (backwards to 20%).
+- Results resume after every seek.
+- No console errors.
+
+A seek lands on the frame at or just before the target, so the first fresh result can lie up to one frame before it (measured: −3 to −9 ms, or +31 ms when the next frame was sampled).
+
+**Preprocessing video frames.** Decoded `VideoFrame`s live on the GPU, so drawing one into a `willReadFrequently` (CPU) canvas makes Chrome read back the full frame first.
+
+- 4K preprocessing took ~15 ms that way, and the WebGPU 30 fps cap only reached 15–26 fps.
+- A GPU canvas scales on the GPU and reads back only 640×384: 2–5 ms, which gives the table above.
+- Still images (CPU-side ImageBitmaps) are faster on the CPU canvas (1–2.5 vs 3–11 ms). The GPU path's resampling also shifted one borderline detection on the highway still (17 → 16 cars).
+- So the worker uses a GPU canvas for video and a CPU canvas for images.
+
+**Box lag** comes from holding the last result until the next one: about one sampling interval, plus latency. It is 33–67 ms median depending on the effective rate. Phase 4's Kalman prediction draws boxes at the displayed time instead.
+
+**Not measured:**
+
+- Weaker hardware, where the main risk is GPU contention with video decode.
+- Long playback (> 6 s per run).
+- Headed Chrome; all runs were headless. Headless reported 0 dropped video frames, but its compositor may differ from a visible window.

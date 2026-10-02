@@ -33,13 +33,19 @@ export class FrameGate {
     private open = false;
     private inFlightSince: number | null = null;
     private stats: FrameGateStats = { ...EMPTY_FRAME_GATE_STATS };
+    private idleWaiters: (() => void)[] = [];
 
     constructor(private readonly now: () => number = () => performance.now()) {}
 
     /** Opening clears any in-flight state; closing makes every offer a drop. */
     setOpen(open: boolean): void {
         this.open = open;
-        if (!open) this.inFlightSince = null;
+        if (!open) {
+            this.inFlightSince = null;
+            const waiters = this.idleWaiters;
+            this.idleWaiters = [];
+            for (const wake of waiters) wake();
+        }
     }
 
     isOpen(): boolean {
@@ -62,12 +68,28 @@ export class FrameGate {
         return true;
     }
 
+    /**
+     * Waits until no frame is in flight, then takes the slot (for one frame
+     * that must not be dropped, e.g. the paused frame). Not counted as offered
+     * or dropped. Resolves false if the gate is closed.
+     */
+    async acquireWhenIdle(): Promise<boolean> {
+        while (this.inFlightSince !== null) await new Promise<void>((resolve) => this.idleWaiters.push(resolve));
+        if (!this.open) return false;
+        this.stats.accepted++;
+        this.inFlightSince = this.now();
+        return true;
+    }
+
     /** Call when the worker answers for the in-flight frame. Stray releases are ignored. */
     release(): void {
         if (this.inFlightSince === null) return;
         this.stats.completed++;
         this.stats.lastLatencyMs = this.now() - this.inFlightSince;
         this.inFlightSince = null;
+        const waiters = this.idleWaiters;
+        this.idleWaiters = [];
+        for (const wake of waiters) wake();
     }
 
     getStats(): FrameGateStats {

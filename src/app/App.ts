@@ -1,12 +1,15 @@
 import { countByClass } from "../counting/countDetections";
 import type { LoadProgress, ModelInfo, StageTimings } from "../inference/InferenceMessages";
 import { InferenceClient } from "../inference/InferenceClient";
+import type { DetectResult } from "../inference/InferenceClient";
 import type { Detection } from "../inference/postprocess";
 import { filterDetections } from "../inference/postprocess";
 import { ImageSource } from "../input/ImageSource";
+import { VideoSource } from "../input/VideoSource";
 import type { InputSource } from "../input/InputSource";
 import { checkMediaFile } from "../input/MediaFiles";
 import type { MediaKind } from "../input/MediaFiles";
+import type { CapturedFrame } from "../input/MediaTypes";
 import { VideoPlayer } from "../input/VideoPlayer";
 import { DetectionLayer } from "../rendering/DetectionLayer";
 import { OverlayRenderer } from "../rendering/OverlayRenderer";
@@ -22,6 +25,7 @@ import { PlaybackControls } from "../ui/PlaybackControls";
 import { SettingsPanel } from "../ui/SettingsPanel";
 import { UploadPanel } from "../ui/UploadPanel";
 import type { Size } from "../utils/geometry";
+import { RealtimeVideo } from "./RealtimeVideo";
 
 /** AGPL §13: every user of the site must be offered the source. */
 const SOURCE_URL = "https://github.com/dtcph/Video-analyzer";
@@ -33,12 +37,15 @@ const SCORE_FLOOR = MIN_CONFIDENCE;
 const RERUN_KEYS: readonly (keyof Settings)[] = ["iouThreshold", "inputSize"];
 const RELOAD_KEYS: readonly (keyof Settings)[] = ["modelSize", "backend"];
 
+const VIDEO_TOTAL_MESSAGE = "Totals for the whole video need object tracking, which is not available yet.";
+
 /**
  * Top-level wiring: builds the DOM shell, owns the services and connects
  * UI events to them. The only module that knows about all the pieces.
  *
- * Phase 2 scope: image detection end to end. Videos play, but detection on
- * video arrives in Phase 3.
+ * Images: one detection, counts are the total. Videos (Phase 3): realtime
+ * detection alongside playback (RealtimeVideo); "Current frame" counts while
+ * paused. Totals over a video come with tracking (Phase 4).
  */
 export class App {
     private readonly settings = new SettingsStore();
@@ -67,6 +74,8 @@ export class App {
 
     private mediaKind: MediaKind | null = null;
     private source: InputSource | null = null;
+    private realtime: RealtimeVideo | null = null;
+    private debugTimer: number | null = null;
     private detectionGeneration = 0;
     private rawDetections: Detection[] | null = null;
     private lastTimings: StageTimings | null = null;
@@ -134,14 +143,17 @@ export class App {
             timeSeconds: () => (this.mediaKind === "video" ? this.player.getCurrentSeconds() : 0)
         });
         this.overlay.addLayer(this.detectionLayer);
+        // Every draw picks the detections that belong to the media time being drawn.
+        this.overlay.onBeforeRender((view) => this.updateLayer(view.timeSeconds));
 
         this.uploadPanel.onSelect((file, kind) => void this.loadMedia(file, kind));
 
         this.player.onStateChange((state) => {
             this.playbackControls.setPlaying(state === "playing");
-            if (state === "playing") this.overlay.startLoop();
+            if (state === "playing") this.overlay.startVideoLoop(this.videoEl);
             else this.overlay.stopLoop();
             if (state === "ready" || state === "paused") this.overlay.renderOnce();
+            if (this.mediaKind === "video") this.renderVideoCounts();
         });
         this.videoEl.addEventListener("timeupdate", () =>
             this.playbackControls.setCurrentTime(this.player.getCurrentSeconds())
@@ -155,11 +167,12 @@ export class App {
     private wireSettings(): void {
         this.settings.onChange(({ changed }) => {
             const keys = Object.keys(changed) as (keyof Settings)[];
+            if (changed.maxInferenceFps !== undefined) this.realtime?.setMaxFps(changed.maxInferenceFps);
             if (keys.some((key) => RELOAD_KEYS.includes(key))) {
                 this.loadModel();
-                void this.detect();
+                this.rerunDetection();
             } else if (keys.some((key) => RERUN_KEYS.includes(key))) {
-                void this.detect();
+                this.rerunDetection();
             } else {
                 this.refresh();
             }
@@ -170,7 +183,7 @@ export class App {
             this.client.dispose();
             this.client = new InferenceClient();
             this.loadModel();
-            void this.detect();
+            this.rerunDetection();
         });
     }
 
@@ -224,13 +237,21 @@ export class App {
 
         try {
             if (kind === "video") {
-                const metadata = await this.player.load(file);
-                this.playbackControls.show(metadata.durationSeconds);
-                this.countsPanel.render({
-                    totalTitle: "Total",
-                    total: null,
-                    message: "Detection on video is not available yet; images are supported."
-                });
+                const source = await VideoSource.load(file, this.player);
+                this.source = source;
+                this.playbackControls.show(this.player.getDurationSeconds());
+                this.realtime = new RealtimeVideo(
+                    source,
+                    {
+                        detect: (frame) => this.detectFrame(frame),
+                        onUpdate: () => this.onVideoResult(),
+                        onError: (message) => this.uploadPanel.showError(`Detection failed: ${message}`)
+                    },
+                    this.settings.get("maxInferenceFps")
+                );
+                this.realtime.redetect();
+                this.renderVideoCounts();
+                this.debugTimer = window.setInterval(() => this.renderDebug(), 500);
             } else {
                 this.source = await ImageSource.load(file, this.imageEl);
                 void this.detect();
@@ -244,6 +265,10 @@ export class App {
 
     private unloadMedia(): void {
         this.detectionGeneration++;
+        this.realtime?.dispose();
+        this.realtime = null;
+        if (this.debugTimer !== null) window.clearInterval(this.debugTimer);
+        this.debugTimer = null;
         this.player.unload();
         this.playbackControls.hide();
         this.source?.dispose();
@@ -300,25 +325,110 @@ export class App {
         }
     }
 
-    /** Applies threshold and class selection to the last result: boxes, counts and debug, no new inference. */
-    private refresh(): void {
-        if (!this.rawDetections) return;
-        const { confidenceThreshold, showRawDetections } = this.settings.getSettings();
-        const shown = filterDetections(this.rawDetections, confidenceThreshold, this.classes.getMask());
-        this.detectionLayer.set(shown, showRawDetections ? this.rawDetections : null);
-        this.overlay.renderOnce();
-        // For a still image the frame's counts are the total.
-        this.countsPanel.render({ totalTitle: "Total (this image)", total: countByClass(shown) });
-        this.renderDebug(shown.length);
+    /** Runs inference on one frame with the current settings, once a model is available (else closes the frame). */
+    private async detectFrame(frame: CapturedFrame): Promise<DetectResult | null> {
+        const info = await this.model;
+        if (!info) {
+            frame.close();
+            return null;
+        }
+        const { inputSize, iouThreshold } = this.settings.getSettings();
+        return this.client.detect(frame, { inputSize, iouThreshold, scoreFloor: SCORE_FLOOR });
     }
 
-    private renderDebug(shownCount: number | null = null): void {
+    /** After a change that alters inference itself (IoU, input size, model). */
+    private rerunDetection(): void {
+        if (this.mediaKind === "image") void this.detect();
+        else this.realtime?.redetect(); // while playing, the next sampled frames use the new settings anyway
+    }
+
+    private onVideoResult(): void {
+        // While playing, the per-frame video loop draws the new result with the next presented frame.
+        if (this.videoEl.paused) {
+            this.overlay.renderOnce();
+            this.renderVideoCounts();
+        }
+    }
+
+    /** The unfiltered detections for the frame at `timeSeconds`. */
+    private rawAt(timeSeconds: number): Detection[] | null {
+        if (this.mediaKind === "video") return this.realtime?.resultAt(timeSeconds)?.detections ?? null;
+        return this.rawDetections;
+    }
+
+    private filtered(raw: readonly Detection[]): Detection[] {
+        return filterDetections(raw, this.settings.get("confidenceThreshold"), this.classes.getMask());
+    }
+
+    private updateLayer(timeSeconds: number): void {
+        const raw = this.rawAt(timeSeconds);
+        const shown = raw ? this.filtered(raw) : [];
+        this.detectionLayer.set(shown, raw && this.settings.get("showRawDetections") ? raw : null);
+        // Observable for automated tests (scripts/e2e): which result is on screen for which frame.
+        const stage = this.stageEl.dataset;
+        stage.drawTime = timeSeconds.toFixed(3);
+        stage.resultTime =
+            this.mediaKind === "video" ? (this.realtime?.resultAt(timeSeconds)?.mediaTime.toFixed(3) ?? "") : "";
+        stage.boxes = String(shown.length);
+    }
+
+    /** Applies threshold and class selection to the current results: boxes, counts and debug, no new inference. */
+    private refresh(): void {
+        this.overlay.renderOnce();
+        if (this.mediaKind === "video") {
+            this.renderVideoCounts();
+        } else if (this.rawDetections) {
+            // For a still image the frame's counts are the total.
+            this.countsPanel.render({
+                totalTitle: "Total (this image)",
+                total: countByClass(this.filtered(this.rawDetections))
+            });
+        }
+        this.renderDebug();
+    }
+
+    /** Video: totals need tracking (Phase 4); the current-frame section appears only while paused. */
+    private renderVideoCounts(): void {
+        const realtime = this.realtime;
+        if (!realtime) return;
+        if (!this.videoEl.paused) {
+            this.countsPanel.render({ totalTitle: "Total", total: null, message: VIDEO_TOTAL_MESSAGE });
+            return;
+        }
+        const exact = realtime.hasExactResult() ? realtime.resultAt(this.player.getCurrentSeconds()) : null;
+        this.countsPanel.render({
+            totalTitle: "Total",
+            total: null,
+            message: VIDEO_TOTAL_MESSAGE,
+            current: exact ? countByClass(this.filtered(exact.detections)) : null,
+            currentMessage: exact ? undefined : "Detecting…"
+        });
+    }
+
+    private renderDebug(): void {
+        const realtime = this.realtime;
+        const stats = realtime?.stats() ?? null;
+        const result = stats?.lastResult ?? null;
+        const raw = this.rawAt(this.mediaKind === "video" ? this.player.getCurrentSeconds() : 0);
+        const quality = this.mediaKind === "video" ? this.videoEl.getVideoPlaybackQuality() : null;
         this.debugReadout.render({
             model: this.modelInfo,
-            timings: this.lastTimings,
-            input: this.lastInput,
-            rawCount: this.rawDetections?.length ?? null,
-            shownCount
+            timings: result?.timings ?? this.lastTimings,
+            input: result ? { width: result.inputWidth, height: result.inputHeight } : this.lastInput,
+            rawCount: raw?.length ?? null,
+            shownCount: raw ? this.filtered(raw).length : null,
+            video:
+                stats && quality
+                    ? {
+                          effectiveFps: stats.effectiveFps,
+                          maxFps: this.settings.get("maxInferenceFps"),
+                          offered: stats.offered,
+                          dropped: stats.dropped,
+                          latencyMs: stats.lastLatencyMs,
+                          playbackDropped: quality.droppedVideoFrames,
+                          playbackTotal: quality.totalVideoFrames
+                      }
+                    : null
         });
     }
 

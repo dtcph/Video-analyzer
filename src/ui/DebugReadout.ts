@@ -1,11 +1,23 @@
 import type { ModelInfo, StageTimings } from "../inference/InferenceMessages";
 
+export interface VideoDebugState {
+    effectiveFps: number;
+    maxFps: number;
+    offered: number;
+    dropped: number;
+    latencyMs: number;
+    /** HTMLVideoElement.getVideoPlaybackQuality(): frames the browser failed to present. */
+    playbackDropped: number;
+    playbackTotal: number;
+}
+
 export interface DebugState {
     model: ModelInfo | null;
     timings: StageTimings | null;
     input: { width: number; height: number } | null;
     rawCount: number | null;
     shownCount: number | null;
+    video?: VideoDebugState | null;
 }
 
 /** Read-only diagnostics in the Debug section: backend, model, per-stage timings. */
@@ -39,6 +51,16 @@ export class DebugReadout {
             ],
             ["Detections raw / shown", state.rawCount === null ? "—" : `${state.rawCount} / ${state.shownCount ?? 0}`]
         ];
+        const video = state.video;
+        if (video) {
+            const dropRatio = video.offered > 0 ? (100 * video.dropped) / video.offered : 0;
+            rows.push(
+                ["Inference FPS", `${video.effectiveFps.toFixed(1)} (max ${video.maxFps})`],
+                ["Sampled frames dropped", `${video.dropped} / ${video.offered} (${dropRatio.toFixed(0)}%)`],
+                ["Latency capture→result", `${video.latencyMs.toFixed(0)} ms`],
+                ["Video frames dropped", `${video.playbackDropped} / ${video.playbackTotal}`]
+            );
+        }
         this.element.replaceChildren(
             ...rows.flatMap(([term, value]) => {
                 const dt = document.createElement("dt");

@@ -17,8 +17,8 @@ Work proceeds in phases 0–7. Each phase ends with a report, and the next one s
 | ----- | ---------------------------------------------------------------------------- | --------------------- |
 | 0     | archive old project, scaffold, port reusable modules                         | done                  |
 | 1     | spike: model export, ORT-Web on WebGPU/WASM, benchmarks, `docs/decisions.md` | done                  |
-| 2     | image detection end-to-end                                                   | done, awaiting review |
-| 3     | realtime video                                                               |                       |
+| 2     | image detection end-to-end                                                   | done                  |
+| 3     | realtime video                                                               | done, awaiting review |
 | 4     | tracking + total counts                                                      |                       |
 | 5     | webcam                                                                       |                       |
 | 6     | pre-analysis mode                                                            |                       |
@@ -45,6 +45,8 @@ npm run test           # Vitest, tests/**/*.test.ts
 npm run e2e [-- --build] [--headed]
                        # drives the real app in Chrome: uploads test-img/*.jpg, toggles classes/settings,
                        # WASM + YOLOv8s, cache; --build tests the production bundle. Report: .cache/e2e/
+npm run e2e:video [-- --build] [--seconds 6]
+                       # 3 clips × WebGPU/WASM × 15/30 fps: rates, drops, latency, box lag, pause/seek checks
 npm run bench -- --plan smoke|full|rect|release [--shots] [--headed]
                        # in-browser ORT benchmark via bench.html + installed Chrome (puppeteer-core)
 .venv-export/bin/python scripts/export_models.py --set release|benchmark   # see scripts/export-model.md
@@ -71,25 +73,33 @@ src/
               classGroups (the brief's 9 groups; every COCO class in exactly one) and
               ClassSelectionStore (enabled classes + mask; default People/Animals/Transportation).
   input/      Media sources (DOM allowed): InputSource interface; ImageSource (decode once to an
-              ImageBitmap, capture = bitmap copy); VideoPlayer, FrameSampler (rVFC, rate-capped capture);
+              ImageBitmap, capture = bitmap copy); VideoSource (VideoFrame capture; captureDisplayedFrame
+              waits for a presented frame: Chrome can't capture a paused, never-presented frame);
+              VideoPlayer; FrameSampler (rVFC-driven, SampleRateLimiter caps by media time);
               MediaFiles (pure upload validation, size limits), MediaTypes.
   inference/  No DOM. inference.worker.ts (+ typed InferenceMessages, main-thread InferenceClient):
               plans backend+file (modelPlan), loads runtime (ortRuntime), fetches the model through
               modelCache (Cache API, SHA-256 verified, progress), warms up WebGPU, then detects:
               rect letterbox → ORT → decode (score floor 0.05) → class-aware NMS → normalized boxes.
-              FrameGate (one frame in flight); preprocess; postprocess (+ filterDetections); cocoClasses.
+              FrameGate (one frame in flight, acquireWhenIdle for the paused frame); DetectionHold (latest
+              result shown ≤ 0.5 s of media time, never across a seek); preprocess; postprocess
+              (+ filterDetections); cocoClasses. The worker uses a GPU canvas for VideoFrames and a CPU
+              (willReadFrequently) canvas for ImageBitmaps; both measured.
   bench/      Phase 1 spike (bench.html, dev server only, not in the build): one ORT session per
               worker, per-stage timing, draws detections; driven by scripts/bench/runBrowserBench.ts.
   tracking/   No DOM. AssignmentSolver (Hungarian). Tracker in Phase 4.
   counting/   No DOM. countByClass, English summary ("3 people, 2 dogs, 1 car").
   rendering/  Canvas 2D only. OverlayRenderer: one DPR-sized canvas over the media, layers get the
-              letterboxed media rect + pixelRatio; rAF loop while playing. DetectionLayer (boxes +
+              letterboxed media rect + pixelRatio; while a video plays it redraws per presented frame
+              (startVideoLoop, exact media time); onBeforeRender hook picks the detections for that time. DetectionLayer (boxes +
               "class NN%" labels, raw detections dashed); classColors (fixed color per class).
   ui/         Plain DOM panels: SettingsPanel (generated from the schema; Advanced/Debug <details>
               closed on every load; Reset to defaults), ClassGroupPanel (tri-state groups, expandable),
               CountsPanel (Total / Current frame / Reset), ModelStatusPanel (progress, notes, Retry),
               DebugReadout, UploadPanel, PlaybackControls.
   app/        App.ts: the only module that knows everything; builds the layout and wires services.
+              RealtimeVideo: sampling → gate → worker → hold; pause/seek/end handling via an epoch counter.
+              The stage element exposes data-draw-time / data-result-time / data-boxes for the e2e scripts.
   utils/      Pure helpers: geometry (top-left Box, IoU, contain/fit), format, math.
 ```
 

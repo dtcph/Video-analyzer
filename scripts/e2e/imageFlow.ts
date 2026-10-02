@@ -12,11 +12,9 @@
 import { mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { Page } from "puppeteer-core";
-import puppeteer from "puppeteer-core";
-import { build, createServer, preview } from "vite";
+import { collectErrors, debugText, launchChrome, serveApp, setSelect, uploadFile, waitForModel } from "./harness.ts";
 
 const args = new Set(process.argv.slice(2));
-const chromePath = process.env.CHROME_PATH ?? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const PORT = 5196;
 const OUT = ".cache/e2e";
 
@@ -40,20 +38,9 @@ async function revision(page: Page): Promise<number> {
     return page.$eval(".counts-panel", (panel) => Number((panel as HTMLElement).dataset.revision ?? 0));
 }
 
-async function waitForModel(page: Page): Promise<string> {
-    await page.waitForFunction(
-        () =>
-            ["ready", "error"].includes((document.querySelector(".model-status") as HTMLElement)?.dataset.state ?? ""),
-        { timeout: 120_000 }
-    );
-    return page.$eval(".model-status-text", (el) => el.textContent?.trim() ?? "");
-}
-
 async function uploadAndWait(page: Page, file: string): Promise<void> {
     const before = await revision(page);
-    const input = await page.$(".upload-input");
-    if (!input) throw new Error("no upload input");
-    await (input as unknown as { uploadFile(path: string): Promise<void> }).uploadFile(file);
+    await uploadFile(page, file);
     await page.waitForFunction(
         (rev) => {
             const panel = document.querySelector(".counts-panel") as HTMLElement;
@@ -72,15 +59,6 @@ async function clickGroup(page: Page, groupId: string): Promise<void> {
     await page.click(`.class-group[data-group="${groupId}"] .class-group-header input`);
 }
 
-async function debugText(page: Page): Promise<Record<string, string>> {
-    return page.$eval(".debug-readout", (dl) => {
-        const out: Record<string, string> = {};
-        const terms = dl.querySelectorAll("dt");
-        terms.forEach((dt) => (out[dt.textContent ?? ""] = (dt.nextElementSibling as HTMLElement).textContent ?? ""));
-        return out;
-    });
-}
-
 const stills = readdirSync("test-img")
     .filter((name) => name.endsWith(".jpg"))
     .sort()
@@ -88,38 +66,18 @@ const stills = readdirSync("test-img")
 if (stills.length === 0) throw new Error("no test-img/*.jpg");
 mkdirSync(OUT, { recursive: true });
 
-let close: () => Promise<void>;
-if (args.has("--build")) {
-    await build({ logLevel: "warn" });
-    const server = await preview({ preview: { port: PORT, strictPort: true }, logLevel: "warn" });
-    close = () => new Promise((done) => server.httpServer.close(() => done()));
-} else {
-    const server = await createServer({ server: { port: PORT, strictPort: true }, logLevel: "error" });
-    await server.listen();
-    close = () => server.close();
-}
-
-const browser = await puppeteer.launch({
-    executablePath: chromePath,
-    headless: !args.has("--headed"),
-    args: ["--enable-unsafe-webgpu", "--use-angle=metal", "--no-first-run"]
-});
-const errors: string[] = [];
+const server = await serveApp(PORT, args.has("--build"));
+const browser = await launchChrome(args.has("--headed"));
+let errors: string[] = [];
 const report: Record<string, unknown> = {
     mode: args.has("--build") ? "production build (vite preview)" : "dev server"
 };
 
 try {
     const page = await browser.newPage();
-    page.on("console", (m) => {
-        if (m.type() === "error") errors.push(m.text());
-    });
-    page.on("pageerror", (e) => errors.push(String(e)));
-    page.on("response", (response) => {
-        if (response.status() >= 400) errors.push(`HTTP ${response.status()} ${response.url()}`);
-    });
+    errors = collectErrors(page);
     await page.setViewport({ width: 1400, height: 1000 });
-    await page.goto(`http://localhost:${PORT}/`, { waitUntil: "load" });
+    await page.goto(server.url, { waitUntil: "load" });
     report.crossOriginIsolated = await page.evaluate(() => self.crossOriginIsolated);
 
     // 1. Default settings (auto backend), every still.
@@ -161,11 +119,7 @@ try {
     report.toggles = toggles;
 
     // 3. Forced WASM backend: reload, then every still again.
-    await page.$eval('[data-setting="backend"] select', (el) => {
-        const select = el as HTMLSelectElement;
-        select.value = "2"; // options: auto, webgpu, wasm
-        select.dispatchEvent(new Event("change"));
-    });
+    await setSelect(page, "backend", 2); // options: auto, webgpu, wasm
     report.modelWasm = await waitForModel(page);
     const wasm: Record<string, unknown> = {};
     for (const file of stills) {
@@ -176,16 +130,8 @@ try {
     report.wasm = wasm;
 
     // 4. "Accurate" model (YOLOv8s) on the auto backend.
-    await page.$eval('[data-setting="backend"] select', (el) => {
-        const select = el as HTMLSelectElement;
-        select.value = "0";
-        select.dispatchEvent(new Event("change"));
-    });
-    await page.$eval('[data-setting="modelSize"] select', (el) => {
-        const select = el as HTMLSelectElement;
-        select.value = "1"; // options: n, s
-        select.dispatchEvent(new Event("change"));
-    });
+    await setSelect(page, "backend", 0);
+    await setSelect(page, "modelSize", 1); // options: n, s
     report.modelSmall = await waitForModel(page);
     const small: Record<string, unknown> = {};
     for (const file of stills) {
@@ -198,8 +144,7 @@ try {
 
     // 5. Unsupported file: a clear error, nothing loaded.
     writeFileSync(`${OUT}/not-media.txt`, "hello");
-    const input = await page.$(".upload-input");
-    await (input as unknown as { uploadFile(path: string): Promise<void> }).uploadFile(resolve(OUT, "not-media.txt"));
+    await uploadFile(page, resolve(OUT, "not-media.txt"));
     report.unsupportedFileError = await page.$eval(".upload-error", (el) =>
         (el as HTMLElement).hidden ? "" : el.textContent
     );
@@ -213,5 +158,5 @@ try {
     writeFileSync(`${OUT}/image-flow.json`, JSON.stringify(report, null, 2));
     console.log(JSON.stringify(report, null, 2));
     await browser.close();
-    await close();
+    await server.close();
 }

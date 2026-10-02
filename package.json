@@ -18,7 +18,8 @@
     "format:check": "prettier --check .",
     "test": "vitest run",
     "bench": "node scripts/bench/runBrowserBench.ts",
-    "e2e": "node scripts/e2e/imageFlow.ts"
+    "e2e": "node scripts/e2e/imageFlow.ts",
+    "e2e:video": "node scripts/e2e/videoFlow.ts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

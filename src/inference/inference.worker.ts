@@ -31,9 +31,27 @@ interface Loaded {
 
 let loaded: Loaded | null = null;
 const runtimes = new Map<string, LoadedRuntime>();
-let canvas: OffscreenCanvas | null = null;
-let ctx: OffscreenCanvasRenderingContext2D | null = null;
+/**
+ * Two preprocessing canvases (measured, docs/benchmarks.md Phase 3):
+ * - "gpu" for VideoFrames, which live on the GPU: scaling happens there and only
+ *   the small letterboxed result is read back (4K: 3–8 ms instead of ~15 ms);
+ * - "cpu" (willReadFrequently) for ImageBitmaps from still images, which live in
+ *   memory: faster for them (1–2.5 ms vs 3–11 ms), and its resampling reproduced
+ *   the Phase 2 reference counts, which the GPU path shifted by one borderline box.
+ */
+type CanvasKind = "gpu" | "cpu";
+const canvases = new Map<CanvasKind, { canvas: OffscreenCanvas; ctx: OffscreenCanvasRenderingContext2D }>();
 let inputBuffer: Float32Array | null = null;
+
+function preprocessCanvas(kind: CanvasKind, width: number, height: number): OffscreenCanvasRenderingContext2D {
+    const existing = canvases.get(kind);
+    if (existing && existing.canvas.width === width && existing.canvas.height === height) return existing.ctx;
+    const canvas = new OffscreenCanvas(width, height);
+    const ctx = canvas.getContext("2d", kind === "cpu" ? { willReadFrequently: true } : undefined);
+    if (!ctx) throw new Error("Could not create the preprocessing canvas.");
+    canvases.set(kind, { canvas, ctx });
+    return ctx;
+}
 let queue: Promise<void> = Promise.resolve();
 
 function post(message: InferenceResponse): void {
@@ -161,12 +179,13 @@ async function detect(request: DetectRequest): Promise<void> {
         const height = "displayHeight" in frame ? frame.displayHeight : frame.height;
         const transform = letterboxTransform({ width, height }, request.inputSize, "rect");
         const { inputWidth, inputHeight } = transform;
-        if (!canvas || canvas.width !== inputWidth || canvas.height !== inputHeight) {
-            canvas = new OffscreenCanvas(inputWidth, inputHeight);
-            ctx = canvas.getContext("2d", { willReadFrequently: true });
+        const ctx = preprocessCanvas(
+            typeof VideoFrame !== "undefined" && frame instanceof VideoFrame ? "gpu" : "cpu",
+            inputWidth,
+            inputHeight
+        );
+        if (inputBuffer?.length !== 3 * inputWidth * inputHeight)
             inputBuffer = new Float32Array(3 * inputWidth * inputHeight);
-        }
-        if (!ctx || !inputBuffer) throw new Error("Could not create the preprocessing canvas.");
         ctx.fillStyle = LETTERBOX_FILL;
         ctx.fillRect(0, 0, inputWidth, inputHeight);
         ctx.drawImage(frame, transform.offsetX, transform.offsetY, transform.drawWidth, transform.drawHeight);

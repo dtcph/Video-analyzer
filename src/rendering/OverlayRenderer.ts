@@ -28,12 +28,15 @@ export interface OverlaySource {
  * sharp, and layers receive the letterboxed media rect so they can map
  * normalized coordinates without knowing about the stage.
  *
- * Runs a requestAnimationFrame loop while media plays (startLoop) and draws
- * once on demand otherwise (renderOnce: pause, seek, new results).
+ * While a video plays, redraws per presented video frame (startVideoLoop);
+ * startLoop is a plain requestAnimationFrame loop for other animated media.
+ * Otherwise draws once on demand (renderOnce: pause, seek, new results).
  */
 export class OverlayRenderer {
     private readonly ctx: CanvasRenderingContext2D;
     private readonly layers: OverlayLayer[] = [];
+    private readonly beforeRender: ((view: OverlayView) => void)[] = [];
+    private videoLoop: { video: HTMLVideoElement; handle: number } | null = null;
     private readonly resizeObserver: ResizeObserver;
     private rafHandle: number | null = null;
 
@@ -53,6 +56,26 @@ export class OverlayRenderer {
         this.renderOnce();
     }
 
+    /** Called with each view right before the layers draw, e.g. to pick the detections for that media time. */
+    onBeforeRender(hook: (view: OverlayView) => void): void {
+        this.beforeRender.push(hook);
+    }
+
+    /**
+     * Redraws whenever the video presents a new frame (requestVideoFrameCallback),
+     * with that frame's exact media time: overlays stay in step with the picture
+     * and nothing is redrawn between video frames.
+     */
+    startVideoLoop(video: HTMLVideoElement): void {
+        this.stopLoop();
+        const step = (_now: number, metadata: VideoFrameCallbackMetadata) => {
+            if (!this.videoLoop) return;
+            this.videoLoop.handle = video.requestVideoFrameCallback(step);
+            this.renderOnce(metadata.mediaTime);
+        };
+        this.videoLoop = { video, handle: video.requestVideoFrameCallback(step) };
+    }
+
     startLoop(): void {
         if (this.rafHandle !== null) return;
         const step = () => {
@@ -63,16 +86,20 @@ export class OverlayRenderer {
     }
 
     stopLoop(): void {
+        if (this.videoLoop) {
+            this.videoLoop.video.cancelVideoFrameCallback(this.videoLoop.handle);
+            this.videoLoop = null;
+        }
         if (this.rafHandle === null) return;
         cancelAnimationFrame(this.rafHandle);
         this.rafHandle = null;
     }
 
     isLooping(): boolean {
-        return this.rafHandle !== null;
+        return this.rafHandle !== null || this.videoLoop !== null;
     }
 
-    renderOnce(): void {
+    renderOnce(timeSeconds = this.source.timeSeconds()): void {
         this.syncCanvasSize();
         this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
@@ -81,9 +108,10 @@ export class OverlayRenderer {
 
         const view: OverlayView = {
             mediaRect: containRect(media, { width: this.canvas.width, height: this.canvas.height }),
-            timeSeconds: this.source.timeSeconds(),
+            timeSeconds,
             pixelRatio: window.devicePixelRatio || 1
         };
+        for (const hook of this.beforeRender) hook(view);
         for (const layer of this.layers) {
             this.ctx.save();
             layer.render(this.ctx, view);

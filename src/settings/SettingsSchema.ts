@@ -134,8 +134,9 @@ export const SETTINGS_SCHEMA: { readonly [K in SettingKey]: SettingDef<Settings[
         max: 30,
         step: 1,
         format: "fps",
-        // Provisional: chosen by measurement in Phase 3.
-        default: 15
+        // Phase 3 measurement (M4 Max): 30 gives 24–29 fps on WebGPU and ~19 on WASM with no dropped video
+        // frames; slower devices just drop more samples. Higher rates also help tracking (Phase 4).
+        default: 30
     },
     confirmationFrames: {
         kind: "number",
