@@ -11,18 +11,20 @@ Guidance for Claude Code in this repository. Keep it short and current, and upda
 
 It targets Chrome/Chromium only. There is no backend, accounts, persistence, recording or export.
 
+**Resuming? Read [docs/HANDOFF.md](docs/HANDOFF.md) first** (state, user decisions, environment, gotchas, the Phase 4 plan); the original requirements are in [docs/BRIEF.md](docs/BRIEF.md).
+
 Work proceeds in phases 0–7. Each phase ends with a report, and the next one starts only after the user approves. Never make git commits: the user commits after review.
 
-| phase | content                                                                      | status                |
-| ----- | ---------------------------------------------------------------------------- | --------------------- |
-| 0     | archive old project, scaffold, port reusable modules                         | done                  |
-| 1     | spike: model export, ORT-Web on WebGPU/WASM, benchmarks, `docs/decisions.md` | done                  |
-| 2     | image detection end-to-end                                                   | done                  |
-| 3     | realtime video                                                               | done, awaiting review |
-| 4     | tracking + total counts                                                      |                       |
-| 5     | webcam                                                                       |                       |
-| 6     | pre-analysis mode                                                            |                       |
-| 7     | performance pass + release                                                   |                       |
+| phase | content                                                                      | status |
+| ----- | ---------------------------------------------------------------------------- | ------ |
+| 0     | archive old project, scaffold, port reusable modules                         | done   |
+| 1     | spike: model export, ORT-Web on WebGPU/WASM, benchmarks, `docs/decisions.md` | done   |
+| 2     | image detection end-to-end                                                   | done   |
+| 3     | realtime video                                                               | done   |
+| 4     | tracking + total counts                                                      | next   |
+| 5     | webcam                                                                       |        |
+| 6     | pre-analysis mode                                                            |        |
+| 7     | performance pass + release                                                   |        |
 
 ## `old/` is an archive
 
