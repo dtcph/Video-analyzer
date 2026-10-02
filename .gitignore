@@ -1,9 +1,14 @@
+# Archived V1/V2 project (reference only, never committed)
+old/
+
+# Dependencies and build output
 node_modules/
 dist/
+.vite/
+
+# Local test media (large, possibly not redistributable)
+test-vid/
+test-img/
+
 .DS_Store
 *.local
-test-vid/
-# Evaluation output: only runs.json + summary.md of the committed baseline are versioned;
-# per-frame <clip>__<profile>.json files are regenerated on demand with `npm run eval`.
-docs/v2/results/latest/
-docs/v2/results/**/*__*.json

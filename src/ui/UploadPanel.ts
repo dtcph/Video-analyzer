@@ -1,23 +1,23 @@
-import { VideoLoader } from "../video/VideoLoader";
-import { formatFileSize } from "../utils/timing";
+import type { MediaFileCheck, MediaKind } from "../input/MediaFiles";
 
-export type FileSelectedHandler = (file: File) => void;
+export type MediaSelectedHandler = (file: File, kind: MediaKind) => void;
 
+/** Drop zone + file picker for images and videos. Validation is injected; this panel only reports results. */
 export class UploadPanel {
     readonly element: HTMLElement;
-    private onFileSelected: FileSelectedHandler | null = null;
-    private errorEl: HTMLElement;
+    private readonly errorEl: HTMLElement;
+    private onSelected: MediaSelectedHandler | null = null;
 
-    constructor() {
+    constructor(private readonly check: (file: File) => MediaFileCheck) {
         this.element = document.createElement("div");
         this.element.className = "upload-panel";
         this.element.innerHTML = `
-            <div class="upload-dropzone" tabindex="0">
-                <p class="upload-title">Drop a video file here</p>
-                <p class="upload-subtitle">or click to browse — MP4 / WebM, up to ~500MB</p>
-                <input type="file" accept="video/mp4,video/webm,video/*" class="upload-input" hidden />
+            <div class="upload-dropzone" tabindex="0" role="button">
+                <p class="upload-title">Drop an image or video here</p>
+                <p class="upload-subtitle">or click to browse: JPEG / PNG / WebP, MP4 / WebM up to 500 MB</p>
+                <input type="file" accept="image/*,video/mp4,video/webm,video/*" class="upload-input" hidden />
             </div>
-            <p class="upload-error" hidden></p>
+            <p class="upload-error" role="alert" hidden></p>
         `;
 
         const dropzone = this.element.querySelector(".upload-dropzone") as HTMLElement;
@@ -26,9 +26,11 @@ export class UploadPanel {
 
         dropzone.addEventListener("click", () => input.click());
         dropzone.addEventListener("keydown", (event) => {
-            if (event.key === "Enter" || event.key === " ") input.click();
+            if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                input.click();
+            }
         });
-
         dropzone.addEventListener("dragover", (event) => {
             event.preventDefault();
             dropzone.classList.add("is-dragover");
@@ -40,7 +42,6 @@ export class UploadPanel {
             const file = event.dataTransfer?.files?.[0];
             if (file) this.handleFile(file);
         });
-
         input.addEventListener("change", () => {
             const file = input.files?.[0];
             if (file) this.handleFile(file);
@@ -48,8 +49,8 @@ export class UploadPanel {
         });
     }
 
-    onSelect(handler: FileSelectedHandler): void {
-        this.onFileSelected = handler;
+    onSelect(handler: MediaSelectedHandler): void {
+        this.onSelected = handler;
     }
 
     showError(message: string): void {
@@ -64,19 +65,11 @@ export class UploadPanel {
 
     private handleFile(file: File): void {
         this.clearError();
-
-        const validationError = VideoLoader.validate(file);
-        if (validationError) {
-            this.showError(validationError);
+        const result = this.check(file);
+        if (!result.ok) {
+            this.showError(result.error);
             return;
         }
-
-        if (!VideoLoader.isRecommendedSize(file)) {
-            this.showError(
-                `Warning: ${formatFileSize(file.size)} exceeds the ~500MB target — playback may be slow. Loading anyway.`
-            );
-        }
-
-        this.onFileSelected?.(file);
+        this.onSelected?.(file, result.kind);
     }
 }

@@ -2,18 +2,16 @@
  * Global (Hungarian / Kuhn-Munkres) bipartite assignment: given a cost
  * matrix, finds the row-to-column assignment that minimizes total cost
  * across ALL pairs at once, rather than each row greedily grabbing its
- * own best column. That's what keeps two tracks near the same blob
- * from both being greedily pulled toward whichever one happens first —
- * a classic source of ID switches on crossing objects — since the
- * globally optimal assignment reasons about every track and detection
- * together.
+ * own best column. That keeps two tracks near the same detection from
+ * both being pulled toward whichever is processed first, a classic
+ * source of ID switches on crossing objects.
  *
- * O(n^2 * m) — trivial at the scale of blobs this app expects (tens,
- * not thousands) per frame. Rectangular matrices (unequal track/blob
- * counts) are supported directly; unfilled cells should be a very
- * large but finite cost (see HungarianBlobMatcher.GATED_OUT_COST) — use
- * Infinity/NaN nowhere in the matrix, since the algorithm's arithmetic
- * (potentials, reduced costs) needs finite values throughout.
+ * O(n^2 * m): trivial at the scale of detections per frame (tens, not
+ * thousands). Rectangular matrices (unequal track/detection counts) are
+ * supported directly. Gated-out pairs should get a very large but FINITE
+ * cost; never put Infinity/NaN in the matrix, since the potentials and
+ * reduced costs need finite values throughout. Callers must still reject
+ * assignments whose cost is at the gate value.
  *
  * Implementation follows the standard shortest-augmenting-path /
  * potentials formulation (the same one commonly attributed to
@@ -24,13 +22,14 @@ export function solveAssignment(costMatrix: number[][]): number[] {
     const rows = costMatrix.length;
     if (rows === 0) return [];
     const cols = costMatrix[0].length;
-    if (cols === 0) return rows > 0 ? new Array(rows).fill(-1) : [];
+    if (cols === 0) return new Array(rows).fill(-1);
 
     // The reference algorithm assumes rows <= cols; transpose if not,
     // then map the result back.
     if (rows > cols) {
         const transposed: number[][] = Array.from({ length: cols }, (_, c) => costMatrix.map((row) => row[c]));
-        const colForRow = solveAssignment(transposed); // colForRow[c] = row assigned to (transposed-)row c, i.e. original column c's assigned row
+        // colForRow[c] = original row assigned to original column c.
+        const colForRow = solveAssignment(transposed);
         const rowForOriginalRow = new Array(rows).fill(-1);
         for (let c = 0; c < cols; c++) {
             const r = colForRow[c];

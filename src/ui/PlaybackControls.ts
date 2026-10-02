@@ -1,67 +1,69 @@
-export type PlayPauseHandler = () => void;
-export type PlayForwardHandler = () => void;
-// export type PlayBackwardHandler = () => void;
+import { formatTimecode } from "../utils/format";
 
-/**
- * Regular video transport — play/pause, step forward — rendered below
- * the video stage once a video is loaded. Playback is native <video>
- * playback. Mirrors the spacebar/K (play-pause), L (forward) keyboard
- * bindings wired in App. (Backward playback is disabled — not needed
- * currently.)
- */
+export type SeekHandler = (seconds: number) => void;
+
+/** Play/pause button, scrubber and time readout for video. Hidden until a video is loaded. */
 export class PlaybackControls {
     readonly element: HTMLElement;
-    private onPlayPauseHandler: PlayPauseHandler | null = null;
-    private onForwardHandler: PlayForwardHandler | null = null;
-    // private onBackwardHandler: PlayBackwardHandler | null = null;
+    private readonly playButton: HTMLButtonElement;
+    private readonly scrubber: HTMLInputElement;
+    private readonly timeLabel: HTMLElement;
+    private durationSeconds = 0;
+    private onPlayPauseHandler: (() => void) | null = null;
+    private onSeekHandler: SeekHandler | null = null;
 
     constructor() {
         this.element = document.createElement("div");
         this.element.className = "playback-controls";
         this.element.hidden = true;
         this.element.innerHTML = `
-            <button type="button" class="playback-button playback-play-pause-button" title="Play / Pause (Space, K)">Play</button>
-            <button type="button" class="playback-button playback-forward-button" title="Play forward (L)">Forward ►►</button>
+            <button type="button" class="playback-button" title="Play / Pause (Space)">Play</button>
+            <input type="range" class="playback-scrubber" min="0" max="1" step="0.001" value="0" aria-label="Seek" />
+            <span class="playback-time">00:00.000 / 00:00.000</span>
         `;
-        // <button type="button" class="playback-button playback-backward-button" title="Play backward (J)">◄◄ Backward</button>
+        this.playButton = this.element.querySelector(".playback-button") as HTMLButtonElement;
+        this.scrubber = this.element.querySelector(".playback-scrubber") as HTMLInputElement;
+        this.timeLabel = this.element.querySelector(".playback-time") as HTMLElement;
 
-        // this.backwardButton.addEventListener("click", () => this.onBackwardHandler?.());
-        this.playPauseButton.addEventListener("click", () => this.onPlayPauseHandler?.());
-        this.forwardButton.addEventListener("click", () => this.onForwardHandler?.());
+        this.playButton.addEventListener("click", () => this.onPlayPauseHandler?.());
+        this.scrubber.addEventListener("input", () => {
+            const seconds = Number(this.scrubber.value);
+            this.updateTimeLabel(seconds);
+            this.onSeekHandler?.(seconds);
+        });
     }
 
-    // private get backwardButton(): HTMLButtonElement {
-    //     return this.element.querySelector(".playback-backward-button") as HTMLButtonElement;
-    // }
-
-    private get playPauseButton(): HTMLButtonElement {
-        return this.element.querySelector(".playback-play-pause-button") as HTMLButtonElement;
-    }
-
-    private get forwardButton(): HTMLButtonElement {
-        return this.element.querySelector(".playback-forward-button") as HTMLButtonElement;
-    }
-
-    onPlayPause(handler: PlayPauseHandler): void {
+    onPlayPause(handler: () => void): void {
         this.onPlayPauseHandler = handler;
     }
 
-    onPlayForward(handler: PlayForwardHandler): void {
-        this.onForwardHandler = handler;
+    onSeek(handler: SeekHandler): void {
+        this.onSeekHandler = handler;
     }
 
-    // onPlayBackward(handler: PlayBackwardHandler): void {
-    //     this.onBackwardHandler = handler;
-    // }
-
-    setEnabled(enabled: boolean): void {
-        this.element.hidden = !enabled;
-        // this.backwardButton.disabled = !enabled;
-        this.playPauseButton.disabled = !enabled;
-        this.forwardButton.disabled = !enabled;
+    show(durationSeconds: number): void {
+        this.durationSeconds = durationSeconds;
+        this.scrubber.max = String(durationSeconds);
+        this.setCurrentTime(0);
+        this.element.hidden = false;
     }
 
-    setPlaybackLabel(label: "Play" | "Pause"): void {
-        this.playPauseButton.textContent = label;
+    hide(): void {
+        this.element.hidden = true;
+        this.durationSeconds = 0;
+        this.setCurrentTime(0);
+    }
+
+    setPlaying(playing: boolean): void {
+        this.playButton.textContent = playing ? "Pause" : "Play";
+    }
+
+    setCurrentTime(seconds: number): void {
+        this.scrubber.value = String(seconds);
+        this.updateTimeLabel(seconds);
+    }
+
+    private updateTimeLabel(seconds: number): void {
+        this.timeLabel.textContent = `${formatTimecode(seconds)} / ${formatTimecode(this.durationSeconds)}`;
     }
 }
