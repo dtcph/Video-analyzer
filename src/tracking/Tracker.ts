@@ -150,10 +150,6 @@ export class Tracker {
         this.options = { ...this.options, ...options };
     }
 
-    getOptions(): Readonly<TrackerOptions> {
-        return this.options;
-    }
-
     /** Media time of the latest update, or null. */
     getLastTime(): number | null {
         return this.lastTime;

@@ -140,11 +140,6 @@ export class RealtimeVideo {
         return { ...this.gate.getStats(), effectiveFps: this.meter.rate(), lastResult: this.lastResult };
     }
 
-    resetStats(): void {
-        this.gate.resetStats();
-        this.meter.reset();
-    }
-
     dispose(): void {
         this.epoch++;
         this.sampler.stop();

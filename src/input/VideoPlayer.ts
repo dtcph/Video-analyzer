@@ -8,7 +8,6 @@ export type VideoPlayerListener = (state: PlaybackState) => void;
  */
 export class VideoPlayer {
     private objectUrl: string | null = null;
-    private state: PlaybackState = "empty";
     private metadata: VideoMetadata | null = null;
     private readonly listeners = new Set<VideoPlayerListener>();
 
@@ -22,14 +21,6 @@ export class VideoPlayer {
     onStateChange(listener: VideoPlayerListener): () => void {
         this.listeners.add(listener);
         return () => this.listeners.delete(listener);
-    }
-
-    getState(): PlaybackState {
-        return this.state;
-    }
-
-    getMetadata(): VideoMetadata | null {
-        return this.metadata;
     }
 
     async load(file: File): Promise<VideoMetadata> {
@@ -163,7 +154,6 @@ export class VideoPlayer {
     }
 
     private setState(state: PlaybackState): void {
-        this.state = state;
         for (const listener of this.listeners) listener(state);
     }
 }

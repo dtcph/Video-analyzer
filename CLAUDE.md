@@ -1,171 +1,86 @@
 # CLAUDE.md
 
-Guidance for Claude Code in this repository. Keep it short and current, and update it at the end of every phase. Detailed reasoning belongs in `docs/`.
+Guidance for Claude Code in this repository. Keep it short and current; update it at the end of every phase. Reasoning belongs in `docs/`.
 
 ## Concept
 
-**Object Counter (V3)** is a public, open-source, client-side website for study research. It runs YOLOv8 (COCO, ONNX via onnxruntime-web) on an image, an uploaded video or a live webcam feed, draws boxes and labels over the media, and counts objects per class:
+**Object Counter (V3)**: a public, open-source, client-side website for study research. YOLOv8 (COCO, ONNX via onnxruntime-web) on an image, an uploaded video or a live webcam; boxes and labels over the media; counts per class: **Total** (unique confirmed tracks, always visible) and **Current frame** (paused only). Chrome/Chromium only; no backend, accounts, persistence, recording or export.
 
-- **Total:** unique confirmed tracks over the session; always visible.
-- **Current frame:** only while paused.
+**Resuming? Read [docs/HANDOFF.md](docs/HANDOFF.md) first.** Requirements: [docs/BRIEF.md](docs/BRIEF.md). Reasoning: [docs/decisions.md](docs/decisions.md). Numbers: [docs/benchmarks.md](docs/benchmarks.md), [docs/clip-counts.md](docs/clip-counts.md).
 
-It targets Chrome/Chromium only. There is no backend, accounts, persistence, recording or export.
+Phases 0–8, each ending with a report and the user's approval. **0–6 done.** Next: **7** tracking quality check + overhaul (camera motion, occlusion, misclassification; options in decisions.md §12, ask first). Then **8** performance pass + release. Never make git commits: the user commits.
 
-**Resuming? Read [docs/HANDOFF.md](docs/HANDOFF.md) first** (state, user decisions, environment, gotchas, the Phase 4 plan); the original requirements are in [docs/BRIEF.md](docs/BRIEF.md).
-
-Work proceeds in phases 0–8 (the user inserted Phase 7, tracking quality, on 2026-10-03; the brief's Phase 7 is now Phase 8). Each phase ends with a report, and the next one starts only after the user approves. Never make git commits: the user commits after review.
-
-| phase | content                                                                          | status                   |
-| ----- | -------------------------------------------------------------------------------- | ------------------------ |
-| 0     | archive old project, scaffold, port reusable modules                             | done                     |
-| 1     | spike: model export, ORT-Web on WebGPU/WASM, benchmarks, `docs/decisions.md`     | done                     |
-| 2     | image detection end-to-end                                                       | done                     |
-| 3     | realtime video                                                                   | done                     |
-| 4     | tracking + total counts                                                          | done                     |
-| 5     | webcam                                                                           | done (awaiting approval) |
-| 6     | pre-analysis mode                                                                |                          |
-| 7     | tracking quality check + overhaul (camera motion, occlusion, `decisions.md` §12) |                          |
-| 8     | performance pass + release                                                       |                          |
-
-## `old/` is an archive
-
-`old/` holds the previous project (V1/V2 motion/blob analyzer). It is gitignored and excluded from tsc, ESLint, Prettier, Vitest and the Vite watcher.
-
-- **Never** edit, import from, delete or commit anything in `old/`.
-- Read it only for reference. `docs/reuse-audit.md` records what was ported.
-- The user deletes it.
+`old/` is the previous project (V1/V2 blob analyzer), gitignored and excluded from all tooling. **Never edit, import from, delete or commit it**; read it for reference only.
 
 ## Commands
 
 ```bash
-npm run dev            # Vite dev server with COOP/COEP headers
-npm run build          # tsc --noEmit, then vite build to dist/
-npm run preview        # serve dist/ (also with COOP/COEP)
-npx tsc --noEmit       # type-check src/, tests/, configs
-npm run lint           # ESLint (typescript-eslint recommended + prettier compat)
-npm run format         # Prettier write  (format:check to verify)
-npm run test           # Vitest, tests/**/*.test.ts
-npm run e2e [-- --build] [--headed]
-                       # drives the real app in Chrome: uploads test-img/*.jpg, toggles classes/settings,
-                       # WASM + YOLOv8s, cache; --build tests the production bundle. Report: .cache/e2e/
-npm run e2e:video [-- --build] [--seconds 6]
-                       # 3 clips × WebGPU/WASM × 15/30 fps: rates, drops, latency, box lag, pause/seek checks
-npm run e2e:webcam [-- --build] [--backend wasm]
-                       # Chrome's fake camera plays test-vid/steady-2 (MJPEG in .cache/e2e/): start, live counts,
-                       # pause/resume, picker + switch, stop releases, restart, disconnect, file load, all errors
-npm run e2e:counts [-- --build]   # Total section: grows while playing, pause adds nothing, seek keeps totals,
-                       # disabled class "not counting", Reset counts
-npm run e2e:clips [-- --build] [--backend wasm] [--label name]
-                       # plays all 7 test-vid/ clips to the end (1×), records tracker input + totals + ID screenshots
-                       # to .cache/e2e/clip-counts/<label>/; replay with other tracker parameters:
-node scripts/e2e/sweepTracker.ts [--label name] [--every 2] [--detail clip.mp4]
-npm run bench -- --plan smoke|full|rect|release [--shots] [--headed]
-                       # in-browser ORT benchmark via bench.html + installed Chrome (puppeteer-core)
+npm run dev | build | preview   # Vite (dev and preview send COOP/COEP); build = tsc --noEmit + vite build
+npx tsc --noEmit && npm run lint && npm run test && npx prettier --check .   # the gate, after every change set
+npm run e2e         [-- --build]                    # image flow (test-img/), WASM + YOLOv8s, cache
+npm run e2e:video   [-- --build]                    # realtime: 3 clips × WebGPU/WASM × 15/30 fps, pause/seek
+npm run e2e:counts  [-- --build]                    # Total section: play, pause, seek, class change, Reset
+npm run e2e:webcam  [-- --build] [--backend wasm]   # fake camera (steady-2 as MJPEG): all flows + errors
+npm run e2e:pre     [-- --build] [--backend wasm] [--speed]   # pre-analysis flows; --speed: all 7 clips timed
+npm run e2e:clips   [-- --build] [--backend wasm] [--label name]   # all clips to the end, records tracker input
+node scripts/e2e/sweepTracker.ts [--label name] [--every 2] [--detail clip.mp4]   # offline tracker replay
+npm run bench -- --plan smoke|full|rect|release     # Phase 1 ORT benchmark (needs .cache/models-bench/)
 .venv-export/bin/python scripts/export_models.py --set release|benchmark   # see scripts/export-model.md
-.venv-export/bin/python scripts/bench/compare_variants.py                  # accuracy vs PyTorch reference
 ```
 
-**Rule:** `npx tsc --noEmit`, `npm run lint` and `npm run test` must all pass after every change set.
+e2e reports and recordings go to `.cache/e2e/`. `scripts/*.ts` run with Node type stripping: erasable TS only, `.ts` import extensions. DOM tests use `// @vitest-environment happy-dom`. ESLint gives `src/` browser/worker globals only. TypeScript pinned `~6.0` (typescript-eslint 8).
 
-Tooling notes:
+## Architecture
 
-- TypeScript is pinned to `~6.0`, because typescript-eslint 8.x supports `<6.1` (TS 7 is out but unsupported there).
-- DOM tests use `// @vitest-environment happy-dom`.
-- ESLint gives `src/` browser and worker globals only, so Node APIs can't leak in.
-- `scripts/*.ts` run directly with Node's type stripping (no tsx): erasable TS syntax only, `.ts` import extensions.
-
-## Layering rule
-
-**Inference, tracking and counting never touch the DOM. Rendering never touches inference logic.** Data flows one way: input → inference (worker) → tracking → counting → rendering/ui.
+**Inference, tracking, counting and analysis never touch the DOM; rendering never touches inference logic.** Data flows one way: input → inference (worker) → tracking → counting → rendering/ui; `app/App.ts` is the only module that knows everything.
 
 ```
-src/
-  settings/   Plain data. SettingsSchema is THE source of truth for user settings (label, range,
-              default, group main/advanced/debug). SettingsStore holds state and sanitizes; nothing persisted.
-              classGroups (the brief's 9 groups; every COCO class in exactly one) and
-              ClassSelectionStore (enabled classes + mask; default People/Animals/Transportation).
-  input/      Media sources (DOM allowed): InputSource interface; ImageSource (decode once to an
-              ImageBitmap, capture = bitmap copy); VideoSource (VideoFrame capture; captureDisplayedFrame
-              waits for a presented frame: Chrome can't capture a paused, never-presented frame);
-              VideoPlayer (file or attachStream); videoCapture (shared VideoFrame capture helpers);
-              WebcamSource (getUserMedia; open() then show(); mode(), onEnded for unplug, dispose() stops
-              every track = camera released); webcam.ts (pure: WEBCAM_CONFIG 1920×1080@24 as `ideal`
-              constraints, cameraDevices, cameraErrorMessage); FrameSampler (rVFC-driven, SampleRateLimiter
-              caps by media time); MediaFiles (pure upload validation, size limits), MediaTypes.
-  inference/  No DOM. inference.worker.ts (+ typed InferenceMessages, main-thread InferenceClient):
-              plans backend+file (modelPlan), loads runtime (ortRuntime), fetches the model through
-              modelCache (Cache API, SHA-256 verified, progress), warms up WebGPU, then detects:
-              rect letterbox → ORT → decode (score floor 0.05) → class-aware NMS → normalized boxes.
-              FrameGate (one frame in flight, acquireWhenIdle for the paused frame); DetectionHold (latest
-              result shown ≤ 0.5 s of media time, never across a seek); preprocess; postprocess
-              (+ filterDetections); cocoClasses. The worker uses a GPU canvas for VideoFrames and a CPU
-              (willReadFrequently) canvas for ImageBitmaps; both measured.
-  bench/      Phase 1 spike (bench.html, dev server only, not in the build): one ORT session per
-              worker, per-stage timing, draws detections; driven by scripts/bench/runBrowserBench.ts.
-  tracking/   No DOM. Tracker (ByteTrack-style: 3 association stages, tentative/confirmed/lost, majority-vote
-              class, newlyConfirmed reported once; internal constants in DEFAULT_TUNING), BoxKalmanFilter
-              (constant velocity, variable dt in media seconds), association (IoU − class penalty, buffered IoU
-              for lost tracks, Hungarian via AssignmentSolver; trackIdsFor labels the paused frame).
-  counting/   No DOM. countByClass, English summary ("3 people, 2 dogs, 1 car"); TotalCounter (session totals,
-              inactive = disabled class, "not counting").
-  rendering/  Canvas 2D only. OverlayRenderer: one DPR-sized canvas over the media, layers get the
-              letterboxed media rect + pixelRatio; while a video plays it redraws per presented frame
-              (startVideoLoop, exact media time); onBeforeRender hook picks the boxes for that time. DetectionLayer (boxes +
-              "#id class NN%" labels, raw detections dashed; data-only DrawnBox); classColors (fixed color per class).
-  ui/         Plain DOM panels: SettingsPanel (generated from the schema; Advanced/Debug <details>
-              closed on every load; Reset to defaults), ClassGroupPanel (tri-state groups, expandable),
-              CountsPanel (Total / Current frame / Reset), ModelStatusPanel (progress, notes, Retry),
-              DebugReadout, UploadPanel, PlaybackControls, WebcamPanel (Start/Stop, Pause, device picker,
-              status + error lines).
-  app/        App.ts: the only module that knows everything; builds the layout and wires services.
-              RealtimeVideo (any RealtimeSource: file or live camera): sampling → gate → worker → hold;
-              pause/seek/end handling via an epoch counter; onSampledResult (forward-played frames only) feeds
-              App's Tracker → TotalCounter; onSeek clears tracks; onLiveResume → Tracker.skip(paused time).
-              Webcam: Stop releases the camera and keeps totals; restart/switch keeps totals, drops tracks;
-              a file load starts fresh.
-              The stage element exposes data-draw-time / data-result-time / data-boxes for the e2e scripts, and
-              with data-trace="1" dispatches a "trackerupdate" event per tracker update (clip runner).
-  utils/      Pure helpers: geometry (top-left Box, IoU, contain/fit), format, math.
+settings/   SettingsSchema (THE source of truth: label, range, default, group main/advanced/debug),
+            SettingsStore (nothing persisted), classGroups (9 groups), ClassSelectionStore (mask).
+input/      ImageSource; VideoSource + VideoPlayer (file or camera stream); videoCapture (VideoFrame
+            from a presented frame, waits/retries); WebcamSource + webcam.ts (WEBCAM_CONFIG, errors,
+            device list); FrameSampler (rVFC, SampleRateLimiter); MediaFiles (upload validation).
+inference/  inference.worker.ts + InferenceClient: modelPlan → ortRuntime → modelCache (SHA-256) →
+            rect letterbox → ORT → decode (floor 0.05) → class-aware NMS → normalized Detections.
+            FrameGate (one frame in flight), DetectionHold, postprocess (+ filterDetections).
+analysis/   Pre-analysis: AnalysisCache (+ InMemory, all classes), TrackingRun (deterministic, re-runnable),
+            analysisKeys (staleness none/tracking/full), PreAnalysisMachine (tested), PreAnalysisRunner
+            (mediabunny + WebCodecs, lazy; frames re-tagged with the file's rotation).
+tracking/   Tracker (ByteTrack-style, 3 stages, majority-vote class, DEFAULT_TUNING), BoxKalmanFilter,
+            association (IoU − class penalty, buffered IoU for lost tracks, Hungarian AssignmentSolver).
+counting/   countByClass, summary text, TotalCounter (count follows the majority class; inactive classes).
+rendering/  OverlayRenderer (per presented frame, exact media time), DetectionLayer (#id labels), colors.
+ui/         SettingsPanel (from the schema), ClassGroupPanel, CountsPanel, ModelStatusPanel, DebugReadout,
+            UploadPanel, PlaybackControls (lockable), WebcamPanel, AnalysisPanel (mode, progress, Re-analyze).
+app/        App (layout + wiring), RealtimeVideo (file or camera: sampling → gate → worker; seek → tracks
+            cleared; live resume → Tracker.skip), PreAnalysisSession (cache, run, state machine).
+bench/      Phase 1 spike (bench.html, dev only). utils/: geometry, format, math, RateMeter.
 ```
 
-**Tracking and counting (Phase 4):** only frames sampled during forward playback feed the tracker (class mask applied, scores ≥ 0.1); the paused frame's detection never does. While playing, boxes are tracks extrapolated to the displayed time; while paused, the frame's own detections (= "Current frame"). Total = confirmed tracks per class: each track is counted once, at confirmation, and its count follows its majority class (moved on change, sum unchanged). Reset counts clears totals and tracks; a class change drops tracks of disabled classes and marks their totals "not counting".
+- **Detections:** the worker returns everything ≥ 0.05 after class-aware NMS; the main thread applies threshold and class mask (equivalent to filtering before NMS, tested), so slider and class changes need no inference. IoU / input size re-run detection; model size / backend reload the model. Boxes are top-left `{x, y, width, height}`, normalized to the source frame.
+- **Realtime (video, webcam):** only forward-played samples feed the tracker; boxes while playing are tracks extrapolated to the displayed time; while paused, the frame's own detections (= Current frame). Reset counts clears totals and tracks; a class change drops tracks of disabled classes and marks their totals "not counting".
+- **Pre-analysis (video files, opt-in):** every sample decoded and detected in order (3.4–3.8× realtime on WebGPU); playback locked until complete; then boxes, totals and Current frame come from the cache. Settings change → stale (cache kept) → Re-analyze (tracking-only or full).
+- **e2e hooks:** `.media-stage[data-draw-time|data-result-time|data-boxes]`, `data-trace="1"` → `trackerupdate` events; `.counts-panel[data-revision]`, `.model-status[data-state]`, `.webcam-panel[data-state]`, `.analysis-panel[data-mode|data-status]`.
 
-### Known limitations (tracking and counting)
+### Known limitations
 
-- **ID switches re-count objects.** No camera-motion compensation yet (planned for Phase 7, no OpenCV): panning or handheld footage over-counts about 2× (`moving_car`, `moving_handheld-2`). Occlusion plus fast scale change also breaks tracks (`steady.mp4`: 1 person → 3 tracks). A switch can also move an ID onto another object, which hides a count.
-- **Re-entry is counted again:** an object that leaves (or is hidden) longer than the track-lost buffer (default 2 s) gets a new track.
-- **Scene cuts** start new tracks for everything (`steady.mp4` at 14.38 s).
-- **Seeking, rewinding or replaying counts again** (user decision); Reset counts before replaying. Pre-analysis (Phase 6) will give deterministic totals.
-- **A track's class is only as good as the model's majority over that track:** after an ID switch each piece votes on its own (the near-camera `steady.mp4` dog is mostly "horse" to YOLOv8n, so that piece counts as a horse). Per-class totals can shift while playing; the sum does not.
-- **Webcam pause** skips the paused time: objects still where they were keep their IDs; objects that moved a lot during the pause get new tracks (measured: ~30–40% of IDs kept on highway traffic after 3 s, ~10% without the skip).
-- **Small objects** (4K drone footage) are under-detected by YOLOv8n, so totals are low there; slower devices (lower inference rate) confirm fewer brief objects, since N counts frames.
+- **ID switches re-count objects:** no camera-motion compensation yet (Phase 7): panning footage over-counts ~1.5–2×; occlusion + fast scale change breaks tracks (`steady.mp4`).
+- **Re-entry** after the lost buffer (2 s) and **scene cuts** start new tracks; **seek/replay** counts again (realtime).
+- **Class per track** = the model's majority over that track: YOLOv8n confuses some classes (dog → horse/cow, book → cell phone).
+- **Small objects** (4K drone) are under-detected; slower devices confirm fewer brief objects (N counts frames).
+- **Webcam pause** keeps IDs of objects that stayed put; moved ones get new tracks.
+- **Pre-analysis** needs a container mediabunny reads (MP4/MOV, WebM/MKV) and a codec Chrome decodes; WebGPU (FP16) and WASM (FP32) totals differ slightly.
 
-**Detection data flow:** the worker returns everything above the 0.05 score floor after class-aware NMS; the main thread applies the confidence threshold and class mask (`filterDetections`). That is provably equivalent to filtering before NMS (tested), so slider and class changes never need a new inference run. IoU / input size re-run detection; model size / backend reload the model.
+## Model, runtime, hosting
 
-Boxes use a top-left origin (`Box {x, y, width, height}`), in pixels or normalized 0..1 as each API states. Final `Detection` boxes are normalized to the source frame.
+- `public/models/` (committed, reproducible, SHA-256 in `manifest.json`): `yolov8n-640-dyn-fp16.onnx` (default), `yolov8n-640-dyn.onnx` (FP32 fallback without `shader-f16`), `yolov8s-640-dyn-fp16.onnx` ("Accurate"). Default input 640, rect letterbox.
+- onnxruntime-web **1.30.0 (pinned)**: WebGPU EP when available, else WASM with `clamp(cores/2, 1, 8)` threads (needs COOP/COEP).
+- Vercel (user deploys, Phase 8: `vercel.json` with COOP/COEP). Hobby limit 100 MB; `dist/` ~82 MB: no extra model variants.
 
-## Model and runtime (Phase 1 decisions, see `docs/decisions.md`, numbers in `docs/benchmarks.md`)
+## Stack and rules
 
-- `public/models/` (committed, reproducible export, SHA-256 in `manifest.json`): `yolov8n-640-dyn-fp16.onnx` (default), `yolov8n-640-dyn.onnx` (FP32 fallback for WebGPU without `shader-f16`), `yolov8s-640-dyn-fp16.onnx` ("Accurate"). Dynamic H/W; output `[1, 84, N]`, NMS in JS.
-- Default input: 640 long side, **rect** letterbox (short side padded to a multiple of 32, 640x384 for 16:9). Matches Ultralytics' predictions exactly.
-- Runtime: onnxruntime-web **1.30.0 (pinned)**. Native WebGPU EP (`onnxruntime-web/webgpu`) when an adapter exists, else plain WASM (`onnxruntime-web/wasm`) with `clamp(cores/2, 1, 8)` threads. Threads need COOP/COEP.
-- Tracker (Phase 4, `docs/decisions.md` §6, evidence in `docs/clip-counts.md`): user decisions: associate across classes (IoU − 0.2 on a class mismatch); majority-vote class, counted once at confirmation, count follows the majority class; any seek clears tracks and keeps totals. Defaults chosen on the clips: confirmation 3 frames, lost buffer 2 s.
-- Hosting: Vercel (user deploys later). `vercel.json` sets COOP/COEP (Phase 8). Hobby limit 100 MB static files; `dist/` budget ~81 MB, so no extra model variants and no JSEP build in the app bundle.
-- Benchmark candidates live in `.cache/models-bench/` (gitignored, outside `public/` so they never reach `dist/`).
+TypeScript, Vite 8, vanilla DOM/CSS, Canvas 2D, Web Workers, onnxruntime-web, mediabunny 1.61.0 (MPL-2.0, lazy chunk), Vitest 5, ESLint 10, Prettier, puppeteer-core (dev). Python only for model export (`scripts/requirements-export.txt`).
 
-## Stack
-
-TypeScript, Vite 8, vanilla DOM/CSS, Canvas 2D, Web Workers, onnxruntime-web, Vitest 5, ESLint 10, Prettier, puppeteer-core (dev: drives the installed Chrome for browser benchmarks). Python (export only, in `.venv-export/`): see `scripts/requirements-export.txt`.
-
-- New libraries are allowed when they clearly help; give one sentence of justification per dependency.
-- Ask the user before adding any UI framework.
-- Do not add OpenCV.
-- Verify every library API against the installed version.
-
-## License
-
-The project is AGPL-3.0 (`LICENSE`, `"license": "AGPL-3.0-only"`), because Ultralytics YOLOv8 code and weights are AGPL-3.0. The README must credit Ultralytics YOLOv8 with the license and a source link. Copyright holder: "Paul". AGPL §13: the site footer links to the public repo `github.com/dtcph/Video-analyzer` (`SOURCE_URL` in App.ts). Never ship model files or code without the notice.
-
-## Test media
-
-`test-vid/` (clips) and `test-img/` (stills, Phase 1) are gitignored local media. Never commit them. Several clips are 4K (the product targets 1080p). Stills: `moving_car_t2.0.jpg`, `steady-2_t1.0.jpg`, `steady_t4.9.jpg` (see `docs/benchmarks.md`).
+- New libraries only when they clearly help (one sentence of justification); ask before any UI framework; **never add OpenCV**; verify every API against the installed version.
+- **License:** AGPL-3.0 (Ultralytics YOLOv8). README credits Ultralytics; copyright "Paul"; the footer links the public repo (`SOURCE_URL` in App.ts). Never ship model files or code without the notice.
+- **Test media:** `test-vid/` (7 clips, several 4K) and `test-img/` (3 stills) are gitignored local media; never commit them.

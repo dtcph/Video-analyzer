@@ -88,11 +88,6 @@ export class WebcamSource implements InputSource {
         };
     }
 
-    /** True while the camera track is live (false after dispose or a disconnect). */
-    isLive(): boolean {
-        return this.track.readyState === "live";
-    }
-
     /** The camera went away (unplugged, revoked, taken by the system). Not called for dispose(). */
     onEnded(handler: () => void): () => void {
         this.endedHandlers.add(handler);

@@ -269,3 +269,23 @@ Measured 2026-10-03 with `npm run e2e:webcam -- --build [--backend wasm]` (M4 Ma
 
 - Both backends keep up with a 24 fps 720p camera. A 1080p camera at 30 fps on WASM would drop samples like the video files (~17–20 fps, Phase 3).
 - Capture method (rVFC vs. MediaStreamTrackProcessor): no measurable difference, see [decisions.md](decisions.md) §13.
+
+## Phase 6: pre-analysis
+
+Measured 2026-10-03 with `npm run e2e:pre -- --build --speed [--backend wasm]` (M4 Max, Chrome 154, headless, YOLOv8n, max 30 fps, default settings). Whole clip analyzed once, every frame (all clips are ≤ 30 fps). ETA = the estimate shown 1 s after Start vs. the time actually left.
+
+| clip              | WebGPU s | × realtime | WASM ×8 s | × realtime | frames | ETA after 1 s (WebGPU) | cache     |
+| ----------------- | -------- | ---------- | --------- | ---------- | ------ | ---------------------- | --------- |
+| moving_car        | 5.7      | 3.46       | 12.5      | 1.57       | 590    | 5 s vs. 4.5 s          | 0.3 MiB   |
+| moving_drone (4K) | 5.4      | 3.84       | 11.5      | 1.82       | 499    | 4 s vs. 4.3 s          | 2.0 MiB   |
+| moving_drone-2    | 10.7     | 3.58       | 26.3      | 1.45       | 1,147  | 10 s vs. 9.6 s         | 0.6 MiB   |
+| moving_handheld   | 3.9      | 3.68       | 9.7       | 1.48       | 428    | 3 s vs. 2.8 s          | < 0.1 MiB |
+| moving_handheld-2 | 2.6      | 3.40       | 6.4       | 1.40       | 269    | 2 s vs. 1.5 s          | 0.1 MiB   |
+| steady            | 4.9      | 3.72       | 12.2      | 1.50       | 547    | 4 s vs. 3.8 s          | < 0.1 MiB |
+| steady-2          | 4.4      | 3.57       | 10.2      | 1.54       | 471    | 3 s vs. 3.3 s          | 0.4 MiB   |
+
+- WebGPU analyzes 3.4–3.8× faster than realtime, WASM 1.4–1.8×; both process every frame (realtime WASM at 30 fps drops ~40% of samples).
+- The ETA is within ~1 s from the first second on.
+- Re-analyze after a confidence change (tracking only, steady-2): 33 ms.
+- Cache memory: ≤ 2 MiB per clip here (packed Float32, all classes above 5%).
+- Bundle: mediabunny is a separate 361 KB chunk loaded on the first analysis; the main bundle is 83.5 KB.

@@ -27,6 +27,12 @@ export interface CameraDebugState {
     frameRate: number | null;
 }
 
+export interface AnalysisDebugState {
+    samples: number;
+    cacheBytes: number;
+    samplesPerSecond: number | null;
+}
+
 export interface DebugState {
     model: ModelInfo | null;
     timings: StageTimings | null;
@@ -36,6 +42,7 @@ export interface DebugState {
     video?: VideoDebugState | null;
     tracker?: TrackerDebugState | null;
     camera?: CameraDebugState | null;
+    analysis?: AnalysisDebugState | null;
 }
 
 /** Read-only diagnostics in the Debug section: backend, model, per-stage timings. */
@@ -87,6 +94,17 @@ export class DebugReadout {
                 [
                     "Camera mode (asked)",
                     `${camera.width}×${camera.height}${camera.frameRate ? ` @ ${Math.round(camera.frameRate)} fps` : ""} (${width}×${height} @ ${frameRate})`
+                ]
+            );
+        }
+        const analysis = state.analysis;
+        if (analysis) {
+            rows.push(
+                ["Pre-analysis samples", String(analysis.samples)],
+                ["Pre-analysis cache", `${(analysis.cacheBytes / 1024 / 1024).toFixed(1)} MiB`],
+                [
+                    "Pre-analysis speed",
+                    analysis.samplesPerSecond === null ? "—" : `${analysis.samplesPerSecond.toFixed(1)} frames/s`
                 ]
             );
         }

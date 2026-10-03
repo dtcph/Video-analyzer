@@ -54,6 +54,14 @@ export class PlaybackControls {
         this.setCurrentTime(0);
     }
 
+    /** Pre-analysis locks playback until the analysis is complete. */
+    setLocked(locked: boolean, reason = ""): void {
+        this.element.classList.toggle("is-locked", locked);
+        this.playButton.disabled = locked;
+        this.scrubber.disabled = locked;
+        this.element.title = locked ? reason : "";
+    }
+
     setPlaying(playing: boolean): void {
         this.playButton.textContent = playing ? "Pause" : "Play";
     }

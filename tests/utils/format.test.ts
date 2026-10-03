@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatFileSize, formatTimecode } from "../../src/utils/format";
+import { formatFileSize, formatTimecode, formatClock } from "../../src/utils/format";
 
 describe("formatTimecode", () => {
     it("formats minutes, seconds and milliseconds", () => {
@@ -19,5 +19,15 @@ describe("formatFileSize", () => {
         expect(formatFileSize(1536)).toBe("1.5 KB");
         expect(formatFileSize(500 * 1024 * 1024)).toBe("500.0 MB");
         expect(formatFileSize(3 * 1024 ** 3)).toBe("3.0 GB");
+    });
+});
+
+describe("formatClock", () => {
+    it("formats m:ss and h:mm:ss, rounding down", () => {
+        expect(formatClock(0)).toBe("0:00");
+        expect(formatClock(12.9)).toBe("0:12");
+        expect(formatClock(75)).toBe("1:15");
+        expect(formatClock(3725)).toBe("1:02:05");
+        expect(formatClock(-3)).toBe("0:00");
     });
 });

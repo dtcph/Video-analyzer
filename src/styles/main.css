@@ -162,6 +162,50 @@ a {
     gap: 12px;
 }
 
+/* Analysis mode (video files) */
+
+.analysis-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.analysis-mode,
+.analysis-controls,
+.analysis-stale {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 16px;
+}
+
+.analysis-controls {
+    gap: 8px;
+}
+
+.analysis-progress {
+    width: 180px;
+}
+
+.analysis-progress-text {
+    font-family: var(--mono);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+}
+
+.analysis-stale {
+    font-size: 12px;
+}
+
+.analysis-panel .upload-error {
+    border-top: none;
+    padding: 0;
+}
+
+.playback-controls.is-locked {
+    opacity: 0.5;
+}
+
 /* Webcam */
 
 .webcam-panel {

@@ -20,3 +20,13 @@ export function formatFileSize(bytes: number): string {
     }
     return `${value.toFixed(1)} ${units[unitIndex]}`;
 }
+
+/** m:ss (or h:mm:ss), whole seconds rounded down: elapsed time and ETA readouts. */
+export function formatClock(seconds: number): string {
+    const total = Math.max(0, Math.floor(seconds));
+    const s = total % 60;
+    const m = Math.floor(total / 60) % 60;
+    const h = Math.floor(total / 3600);
+    const ss = String(s).padStart(2, "0");
+    return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${ss}` : `${m}:${ss}`;
+}

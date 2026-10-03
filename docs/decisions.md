@@ -215,6 +215,7 @@ Candidate work, from the Phase 4 discussion (none built yet):
 - **Observation-centric re-update after gaps** (OC-SORT idea): rebuild a re-found track's velocity from its observations instead of the drifted prediction (fast scale change, non-linear motion).
 - **Cheap appearance:** a color histogram per detection crop in the worker, used to re-match lost tracks (well under 1 ms per frame, estimated).
 - **Learned re-identification** (DeepSORT/BoT-SORT-style embedding model): strongest, but ~1–3 ms per crop (estimate), a second model file and license, size budget; realistic only for pre-analysis.
+- **Model misclassifications** (reported by the user 2026-10-03 on a real webcam: a book detected as "cell phone"; earlier: the `steady.mp4` dog as horse/cow): a model issue, not tracking. Options to evaluate: "Accurate" (YOLOv8s) as default where the device allows; per-class or per-group confidence thresholds; a larger input size; confusable-pair handling (e.g. require a higher score for classes that are often confused); fine-tuning is out of scope unless the user asks (new weights, AGPL training pipeline, size budget).
 - **Offline tracklet stitching** in pre-analysis (Phase 6 cache): link broken track pieces using time, position, motion and appearance. Merging pieces can lower a total, which is a counting-rule change the user must approve. The Phase 6 cache should keep track pieces, not only final counts, so this stays possible.
 
 ### Camera-motion compensation
@@ -248,3 +249,27 @@ Candidate work, from the Phase 4 discussion (none built yet):
 - **Camera switch** (device picker, shown when there are 2+ cameras): restarts the stream with an exact `deviceId`; totals kept, tracks dropped (new scene), the old camera released.
 - **Errors** (`cameraErrorMessage`): `NotAllowedError`/`SecurityError` → denied (allow it in the address bar); `NotFoundError` → no camera; `NotReadableError`/`AbortError` → in use by another application; `OverconstrainedError` → the picked camera is gone; no `navigator.mediaDevices` → needs HTTPS. A track that ends on its own (unplugged, revoked) → "disconnected" message, camera released, totals kept. `track.stop()` does not fire `ended`, so this only triggers for real disconnects.
 - **Release:** `WebcamSource.dispose()` stops every track and detaches the stream; it runs on Stop, camera switch, disconnect and when a file is loaded.
+
+## 14. Pre-analysis (Phase 6)
+
+- **User decisions (2026-10-03):**
+  - **Stop keeps the partial result** ("Total (incomplete)", "Stopped at 0:07 of 0:15"); Start resumes from the last analyzed frame with the tracker state intact. Playback stays locked until the analysis is complete.
+  - **The cache holds every class** the model returns (above the 5% floor, after NMS), as packed Float32 rows. A confidence, class or tracker-setting change only re-runs tracking over the cache (measured 33 ms for steady-2); model, backend, IoU, input size or rate changes need a full pass. This replaces the "enabled classes only" proposal of §5 for pre-analysis.
+  - **Realtime stays the default mode** for uploaded videos.
+  - **Sampling is capped by the max inference rate**, like realtime: every frame of a ≤ 30 fps video.
+- **Decoding: WebCodecs, demuxed by [mediabunny](https://github.com/Vanilagy/mediabunny) 1.61.0** (new dependency: the only maintained pure-TypeScript library that demuxes both MP4/MOV and WebM/MKV into WebCodecs; MPL-2.0, file-level copyleft, compatible with AGPL-3.0, listed in the Phase 8 third-party notices). Loaded on demand, so the app's first load stays 83 KB. Measured (300 frames, YOLOv8n WebGPU, one frame in flight):
+
+  | clip               | decode only | decode + inference | `<video>` seek + capture (no demuxer) |
+  | ------------------ | ----------- | ------------------ | ------------------------------------- |
+  | steady-2, 720p     | 2,484 fps   | 105 fps            | 4.6 fps                               |
+  | moving_car, 1080p  | 1,436 fps   | 104 fps            | 4.4 fps                               |
+  | moving_drone-2, 4K | 647 fps     | 113 fps            | 3.8 fps                               |
+
+  Decoding is not the bottleneck; inference is. Seeking a `<video>` per frame is ~25× slower and slower than realtime, so there is no `<video>` fallback: a file mediabunny or the browser cannot decode gets a message, and Realtime still works for it.
+
+- **Orientation:** decoded frames come in coded orientation (`rotation: 0`), while `new VideoFrame(video)` carries the file's rotation. The runner re-wraps each decoded frame with `new VideoFrame(frame, {rotation, flip})` (supported by Chrome 154; missing from TypeScript 6's DOM types), so the worker sees exactly the displayed picture, like realtime. Verified with a phone-style portrait file (sideways pixels + rotation tag): same first-frame counts as realtime, boxes on the displayed person.
+- **Timing:** mediabunny's sample timestamps equal the `<video>` element's media times: during playback 470 of 470 overlay draws used the cached sample of exactly the frame on screen.
+- **State machine** (`src/analysis/PreAnalysisMachine.ts`, tested): idle → running → stopped ⇄ running → complete; any settings change (not Debug) → stale, with `from` (complete or partial) and `kind` (tracking or full); changing the settings back clears it; Re-analyze: tracking-only returns to `from`, full starts over. A settings change while running stops the run first. Playback is unlocked only for a complete result, also while stale (the old cache stays in use until Re-analyze, as the brief requires).
+- **Playback from the cache:** boxes are the tracks of the sample on screen (no prediction needed: every sample is cached); "Current frame" while paused uses that sample's detections, filtered with the settings the cache was tracked with; totals are the whole video's from frame 0. **Reset counts is hidden in pre-analysis**: the totals belong to the cache (Re-analyze replaces them).
+- **Modes per file:** realtime and pre-analysis have separate totals; switching to realtime stops a running analysis (kept as stopped) and keeps the cache while the file stays loaded. Loading another file discards it.
+- **Determinism:** the same file and settings give identical totals on every playback, after Stop + Resume and in a second uninterrupted analysis (tested on WebGPU). WebGPU (FP16) and WASM (FP32) totals differ slightly, as in Phase 3.
