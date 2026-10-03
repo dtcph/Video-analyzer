@@ -95,7 +95,7 @@ function fillCounts(
     list.className = "counts-list";
     for (const count of counts) {
         const item = document.createElement("li");
-        item.className = "counts-row";
+        item.className = count.inactive ? "counts-row is-inactive" : "counts-row";
         item.dataset.classId = String(count.classId);
         const swatch = document.createElement("span");
         swatch.className = "class-swatch";
@@ -103,6 +103,13 @@ function fillCounts(
         const label = document.createElement("span");
         label.className = "counts-label";
         label.textContent = count.label;
+        if (count.inactive) {
+            const tag = document.createElement("span");
+            tag.className = "counts-tag";
+            tag.textContent = "not counting";
+            tag.title = "This class is disabled: its total is kept but no longer increases.";
+            label.append(" ", tag);
+        }
         const value = document.createElement("span");
         value.className = "counts-value";
         value.textContent = String(count.count);

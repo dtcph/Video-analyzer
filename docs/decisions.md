@@ -87,17 +87,28 @@ Evidence is in [benchmarks.md](benchmarks.md). All measurements come from one hi
 
 ## 6. Tracker (built in Phase 4)
 
-- **Design:** ByteTrack-style.
-  - **Motion:** constant-velocity Kalman filter on box center, aspect ratio and height.
-  - **Association, two stages:**
-    1. Detections at or above the confidence threshold are matched to all tracks by IoU, with optimal assignment (`AssignmentSolver`, Hungarian).
-    2. Low-score detections (0.1 up to the threshold) can only _extend_ unmatched existing tracks. This keeps IDs through partial occlusion.
-  - **Low-score detections are never drawn or counted.**
-- **States:** tentative → confirmed (after N hits, Advanced "Confirmation frames") → lost (kept for the "Track-lost buffer" seconds) → removed.
-- **Per-class IDs:** each track carries `classId`, `label` and its latest confidence.
-- **Class flicker** between similar classes (car ↔ truck, the dog ↔ horse seen in Phase 1). Strict per-class association would double count a flickering object.
-  - **Decided by the user:** associate across classes, with an IoU penalty for a class mismatch.
-  - **Still to confirm in the Phase 4 report** (my proposal, not yet explicitly approved): give each track its majority-vote class, and count it once, at confirmation, under that class.
+Final design, built and measured in Phase 4. Evidence and per-clip numbers: [clip-counts.md](clip-counts.md).
+
+- **Design:** ByteTrack-style, pure TypeScript in `src/tracking/` (no DOM), on the main thread (≤ 0.6 ms per update on the busiest 4K clip).
+  - **Motion:** constant-velocity Kalman filter on box center, aspect ratio and height (`BoxKalmanFilter`). ByteTrack's noise constants, with a **variable time step**: frames arrive at a varying rate, so each step is media seconds × 30 nominal frames. Exact equivalent of ByteTrack's 8-D filter, stored as four 2×2 blocks.
+  - **Association, three stages (Hungarian, `AssignmentSolver`):**
+    1. detections ≥ the confidence threshold ↔ confirmed and lost tracks, IoU ≥ 0.2;
+    2. low-score detections (0.1 up to the threshold) ↔ still unmatched confirmed tracks, IoU ≥ 0.5; they only _extend_ tracks (no hits, no class votes, never drawn on their own, never counted);
+    3. remaining high-score detections ↔ tentative tracks, IoU ≥ 0.3; unmatched tentative tracks are removed, so confirmation needs **consecutive** frames.
+  - **Buffered IoU for lost tracks** (C-BIoU, Yang et al. 2023): when re-associating a lost track, both boxes are enlarged by 50% of their size per side before the IoU. Small objects under a moving camera no longer overlap their prediction after a gap; this cut moving-camera totals by 15–28% and changed fixed-camera totals by ≤ 4%. _Added in Phase 4 after measurement; a lightweight mitigation, not camera-motion compensation. Reversible: `DEFAULT_TUNING.lostBuffer = 0`._
+  - **Cross-class duplicates:** an unmatched detection overlapping a track matched in the same frame by IoU ≥ 0.7 _with a different class_ does not start a track (class-aware NMS keeps e.g. a car and a truck box on one vehicle; steady-2: 10 trucks → 1).
+  - All of these are internal constants in `DEFAULT_TUNING` (`src/tracking/Tracker.ts`), not settings.
+- **States:** tentative → confirmed (after N hits, Advanced "Confirmation frames", **default 3**) → lost (kept for the "Track-lost buffer", **default 2 s** of media time) → removed. A lost track that is re-associated becomes confirmed again with the same ID.
+- **Per-class IDs:** each track carries `classId`, `label` and the score of its latest above-threshold detection.
+- **Class flicker** (car ↔ truck, the dog ↔ horse ↔ cow in `steady.mp4`):
+  - **User decision:** associate across classes, with an IoU penalty for a class mismatch. Penalty **0.2** (association score = IoU − 0.2). Measured better than strict per-class matching on every clip.
+  - **User decisions (2026-10-03):** each track's class is the **majority vote** of its above-threshold detections (score-weighted). A track is **counted once, when it is confirmed**, and its count then **follows the majority class**: when the winning class changes, the tracker reports it (`TrackerUpdate.reclassified`) and `TotalCounter.move` moves the count, so the sum never changes. A tie keeps the current class (no flip-flopping).
+    - Revised the same day: the first answer was "counted under the majority class at confirmation, never moved"; it counted the `steady.mp4` dog as "cow" from its first 3 frames, and the user asked for the count to follow the majority.
+    - Limit: re-attribution works per track. When an object's track breaks (ID switch), each piece votes on its own; on `steady.mp4` the near-camera piece of the dog is labeled "horse" by YOLOv8n in most frames, so it is counted as a horse ([clip-counts.md](clip-counts.md) §2).
+- **Seek / rewind / replay (user decision, 2026-10-03):** any seek clears the tracks and keeps the totals; rewinding or replaying counts objects again; **Reset counts** clears both (and restarts IDs at 1). The tracker itself also resets when it sees time go backwards.
+- **What feeds the tracker:** only frames sampled during forward playback. The paused frame's detection (pause, seek while paused, end) only feeds the display and "Current frame", so pausing can never add counts.
+- **Display:** while playing, boxes are the tracks seen in the latest update (tentative and confirmed), Kalman-extrapolated to the displayed media time; hidden when the latest update is more than 0.5 s of media time away. While paused, the paused frame's own detections are drawn (they are what "Current frame" counts), labeled with the IDs of overlapping tracks. "Show raw detections" (Debug) still draws the held raw result.
+- **Class selection change:** tracks of newly disabled classes are dropped at once; totals of disabled classes stay, marked "not counting"; the class panel says earlier counts are not recomputed.
 
 ## 7. Frame handling (Phases 3–5)
 
@@ -106,7 +117,7 @@ Evidence is in [benchmarks.md](benchmarks.md). All measurements come from one hi
 - **Smooth overlays:**
   - Phase 3 holds the latest result for up to 0.5 s of media time, so it lags about one sampling interval.
   - The overlay redraws on every presented video frame and never shows a result from before a seek.
-  - From Phase 4, boxes are drawn from the tracker's Kalman prediction at the displayed media time. Untracked raw detections (Debug view) stay held.
+  - Since Phase 4, boxes are drawn from the tracker's Kalman prediction at the displayed media time (see §6). Untracked raw detections (Debug view) stay held.
 - **Paused frame:** on pause, at the end, and after a seek while paused, the displayed frame itself is detected; it is never dropped. "Current frame" counts appear only once that result is in.
   - Chrome can only capture a paused frame after it has been presented: `new VideoFrame(video)` and even `createImageBitmap(video)` fail right after loading, even at `readyState` 4. So capture waits for the next presented frame and retries.
 - **Preprocessing:** a GPU canvas for video frames (2–5 ms at 4K instead of ~15) and a CPU canvas for still images; see benchmarks.md, Phase 3.
@@ -191,3 +202,14 @@ The project is published under **AGPL-3.0-only** (`LICENSE`, `package.json`).
 3. **Copyright holder:** "Paul". The repository is public.
 4. **Class flicker:** associate across classes with an IoU penalty for a class mismatch (section 6).
 5. **Repository rename:** not answered; it stays "Video-analyzer" unless you say otherwise.
+
+## 12. Camera-motion compensation: planned as Phase 6b (decided 2026-10-03)
+
+Moving-camera clips over-count by about 1.5–2× from ID switches ([clip-counts.md](clip-counts.md)). The user decided to finish the original plan first (Phases 5–6) and add **Phase 6b, a measured spike**, before the Phase 7 performance pass.
+
+- **What V2 had** (`old/`, reference only): OpenCV.js block matching (2×2 residual grid) and sparse LK optical flow on FAST corners (4×3 grid); translation only (affine and homography fits absorbed real object motion and stayed diagnostics); a parallax rejection rule. It helped a slow pan and failed on car and drone footage (confident in 63% of car frames, < 20% of late drone frames), at 50–70 ms per frame in Node. It compensated whole frames for frame differencing.
+- **Why V3 needs much less:** only the tracker's predicted boxes have to be shifted before association, and YOLO's boxes tell us where likely movers are, so they can be masked out of the estimate.
+- **Proposed approach** (pure TypeScript, no OpenCV): in the worker, reuse the letterboxed frame, downscale to ~160×90 grayscale, mask detected boxes, estimate a robust global translation (+ optional scale) by block matching or phase correlation; return it with the detections; `Tracker.update` applies it to predicted boxes, only when the estimate is confident. Expected ≈ 1–2 ms per frame (estimate, not measured).
+- **Cheaper fallback:** the median displacement of confirmed tracks (no image work); unreliable with few tracks or many movers.
+- **Evaluation:** extend the clip runner to record each frame's motion estimate so the offline replay can compare counts and suspected re-counts with and without it. Go/no-go on the numbers.
+- **Not solvable by a global model:** parallax (side-facing car camera, low drone over houses); per-track velocity and the buffered IoU already absorb part of it.

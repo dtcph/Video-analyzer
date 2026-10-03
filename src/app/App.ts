@@ -1,4 +1,5 @@
 import { countByClass } from "../counting/countDetections";
+import { TotalCounter } from "../counting/TotalCounter";
 import type { LoadProgress, ModelInfo, StageTimings } from "../inference/InferenceMessages";
 import { InferenceClient } from "../inference/InferenceClient";
 import type { DetectResult } from "../inference/InferenceClient";
@@ -12,6 +13,7 @@ import type { MediaKind } from "../input/MediaFiles";
 import type { CapturedFrame } from "../input/MediaTypes";
 import { VideoPlayer } from "../input/VideoPlayer";
 import { DetectionLayer } from "../rendering/DetectionLayer";
+import type { DrawnBox } from "../rendering/DetectionLayer";
 import { OverlayRenderer } from "../rendering/OverlayRenderer";
 import { ClassSelectionStore } from "../settings/ClassSelectionStore";
 import type { Settings } from "../settings/SettingsSchema";
@@ -24,6 +26,8 @@ import { ModelStatusPanel } from "../ui/ModelStatusPanel";
 import { PlaybackControls } from "../ui/PlaybackControls";
 import { SettingsPanel } from "../ui/SettingsPanel";
 import { UploadPanel } from "../ui/UploadPanel";
+import { trackIdsFor } from "../tracking/association";
+import { DEFAULT_TUNING, Tracker } from "../tracking/Tracker";
 import type { Size } from "../utils/geometry";
 import { RealtimeVideo } from "./RealtimeVideo";
 
@@ -37,15 +41,20 @@ const SCORE_FLOOR = MIN_CONFIDENCE;
 const RERUN_KEYS: readonly (keyof Settings)[] = ["iouThreshold", "inputSize"];
 const RELOAD_KEYS: readonly (keyof Settings)[] = ["modelSize", "backend"];
 
-const VIDEO_TOTAL_MESSAGE = "Totals for the whole video need object tracking, which is not available yet.";
+/** Tracks are drawn only while the latest tracker update is at most this far (media seconds) from the displayed frame. */
+const MAX_TRACK_DISPLAY_AGE = 0.5;
+
+const CLASS_CHANGE_NOTE = "Class changes apply from now on; earlier counts are not recomputed.";
 
 /**
  * Top-level wiring: builds the DOM shell, owns the services and connects
  * UI events to them. The only module that knows about all the pieces.
  *
- * Images: one detection, counts are the total. Videos (Phase 3): realtime
- * detection alongside playback (RealtimeVideo); "Current frame" counts while
- * paused. Totals over a video come with tracking (Phase 4).
+ * Images: one detection, counts are the total. Videos: realtime detection
+ * alongside playback (RealtimeVideo); frames sampled while playing feed the
+ * tracker, whose newly confirmed tracks are added to the totals (Phase 4).
+ * While playing, boxes are the tracks predicted at the displayed time; while
+ * paused, the paused frame's own detections ("Current frame" counts).
  */
 export class App {
     private readonly settings = new SettingsStore();
@@ -60,6 +69,13 @@ export class App {
     private readonly modelStatus = new ModelStatusPanel();
     private readonly debugReadout = new DebugReadout();
     private readonly detectionLayer = new DetectionLayer();
+    private readonly tracker = new Tracker({
+        confirmationFrames: this.settings.get("confirmationFrames"),
+        lostBufferSeconds: this.settings.get("lostBufferSeconds"),
+        highScore: this.settings.get("confidenceThreshold")
+    });
+    private readonly totals = new TotalCounter();
+    private lastTrackerMs = 0;
 
     private stageEl!: HTMLElement;
     private videoEl!: HTMLVideoElement;
@@ -162,12 +178,16 @@ export class App {
 
         this.playbackControls.onPlayPause(() => this.player.togglePlayback());
         this.playbackControls.onSeek((seconds) => this.player.seekToSeconds(seconds));
+        this.countsPanel.onReset(() => this.resetCounts());
     }
 
     private wireSettings(): void {
         this.settings.onChange(({ changed }) => {
             const keys = Object.keys(changed) as (keyof Settings)[];
             if (changed.maxInferenceFps !== undefined) this.realtime?.setMaxFps(changed.maxInferenceFps);
+            const { confirmationFrames, lostBufferSeconds } = changed;
+            if (confirmationFrames !== undefined) this.tracker.setOptions({ confirmationFrames });
+            if (lostBufferSeconds !== undefined) this.tracker.setOptions({ lostBufferSeconds });
             if (keys.some((key) => RELOAD_KEYS.includes(key))) {
                 this.loadModel();
                 this.rerunDetection();
@@ -177,7 +197,11 @@ export class App {
                 this.refresh();
             }
         });
-        this.classes.onChange(() => this.refresh());
+        this.classes.onChange(() => {
+            // From now on only: tracks of disabled classes go, totals stay (marked "not counting").
+            this.tracker.dropDisabledClasses(this.classes.getMask());
+            this.refresh();
+        });
         this.modelStatus.onRetry(() => {
             // A crashed worker cannot recover; start a fresh one.
             this.client.dispose();
@@ -244,12 +268,15 @@ export class App {
                     source,
                     {
                         detect: (frame) => this.detectFrame(frame),
+                        onSampledResult: (mediaTime, result) => this.track(mediaTime, result),
+                        onSeek: () => this.tracker.clear(),
                         onUpdate: () => this.onVideoResult(),
                         onError: (message) => this.uploadPanel.showError(`Detection failed: ${message}`)
                     },
                     this.settings.get("maxInferenceFps")
                 );
                 this.realtime.redetect();
+                this.classPanel.setNote(CLASS_CHANGE_NOTE);
                 this.renderVideoCounts();
                 this.debugTimer = window.setInterval(() => this.renderDebug(), 500);
             } else {
@@ -267,6 +294,9 @@ export class App {
         this.detectionGeneration++;
         this.realtime?.dispose();
         this.realtime = null;
+        this.tracker.clear(true);
+        this.totals.reset();
+        this.classPanel.setNote(null);
         if (this.debugTimer !== null) window.clearInterval(this.debugTimer);
         this.debugTimer = null;
         this.player.unload();
@@ -342,6 +372,43 @@ export class App {
         else this.realtime?.redetect(); // while playing, the next sampled frames use the new settings anyway
     }
 
+    /** A frame sampled during playback: update tracks, count newly confirmed ones. */
+    private track(mediaTime: number, result: DetectResult): void {
+        const mask = this.classes.getMask();
+        const { lowScore } = DEFAULT_TUNING;
+        const detections = result.detections.filter((d) => mask[d.classId] === 1 && d.score >= lowScore);
+        this.tracker.setOptions({ highScore: this.settings.get("confidenceThreshold") });
+        const start = performance.now();
+        const update = this.tracker.update(mediaTime, detections);
+        this.lastTrackerMs = performance.now() - start;
+        for (const track of update.newlyConfirmed) this.totals.add(track.classId);
+        for (const change of update.reclassified) this.totals.move(change.from, change.to);
+        if (update.newlyConfirmed.length > 0 || update.reclassified.length > 0) this.renderVideoCounts();
+        // Automated clip runs (scripts/e2e/clipCounts.ts) set data-trace="1" to record the tracker's input and state.
+        if (this.stageEl.dataset.trace === "1") {
+            this.stageEl.dispatchEvent(
+                new CustomEvent("trackerupdate", {
+                    detail: {
+                        mediaTime,
+                        detections: result.detections.filter((d) => d.score >= lowScore),
+                        tracks: this.tracker.snapshot(),
+                        newlyConfirmed: update.newlyConfirmed,
+                        trackerMs: this.lastTrackerMs
+                    }
+                })
+            );
+        }
+    }
+
+    /** Reset counts: clears totals and tracks (track IDs restart at 1). */
+    private resetCounts(): void {
+        this.tracker.clear(true);
+        this.totals.reset();
+        this.overlay.renderOnce();
+        this.renderVideoCounts();
+        this.renderDebug();
+    }
+
     private onVideoResult(): void {
         // While playing, the per-frame video loop draws the new result with the next presented frame.
         if (this.videoEl.paused) {
@@ -362,13 +429,33 @@ export class App {
 
     private updateLayer(timeSeconds: number): void {
         const raw = this.rawAt(timeSeconds);
-        const shown = raw ? this.filtered(raw) : [];
-        this.detectionLayer.set(shown, raw && this.settings.get("showRawDetections") ? raw : null);
+        const showRaw = this.settings.get("showRawDetections");
+        const showIds = this.settings.get("showTrackIds");
+        let shown: DrawnBox[];
+        let resultTime = "";
+        if (this.mediaKind !== "video") {
+            shown = raw ? this.filtered(raw) : [];
+        } else if (this.videoEl.paused && this.realtime?.hasExactResult()) {
+            // Paused: the frame's own detections (what "Current frame" counts), labeled with overlapping tracks.
+            const exact = this.realtime.resultAt(timeSeconds);
+            const detections = exact ? this.filtered(exact.detections) : [];
+            const ids = trackIdsFor(detections, this.tracker.visibleAt(timeSeconds, MAX_TRACK_DISPLAY_AGE));
+            shown = detections.map((d, i) => ({ ...d, trackId: ids[i] }));
+            resultTime = exact?.mediaTime.toFixed(3) ?? "";
+        } else {
+            // Playing: tracks, predicted to the displayed media time (no lag behind the picture).
+            const tracks = this.tracker.visibleAt(timeSeconds, MAX_TRACK_DISPLAY_AGE);
+            shown = tracks.map((t) => ({ classId: t.classId, score: t.confidence, box: t.box, trackId: t.id }));
+            const updated = this.tracker.getLastTime();
+            if (updated !== null && Math.abs(timeSeconds - updated) <= MAX_TRACK_DISPLAY_AGE) {
+                resultTime = updated.toFixed(3);
+            }
+        }
+        this.detectionLayer.set(shown, raw && showRaw ? raw : null, showIds);
         // Observable for automated tests (scripts/e2e): which result is on screen for which frame.
         const stage = this.stageEl.dataset;
         stage.drawTime = timeSeconds.toFixed(3);
-        stage.resultTime =
-            this.mediaKind === "video" ? (this.realtime?.resultAt(timeSeconds)?.mediaTime.toFixed(3) ?? "") : "";
+        stage.resultTime = resultTime;
         stage.boxes = String(shown.length);
     }
 
@@ -387,19 +474,24 @@ export class App {
         this.renderDebug();
     }
 
-    /** Video: totals need tracking (Phase 4); the current-frame section appears only while paused. */
+    /** Video: totals (unique confirmed tracks) always; the current-frame section only while paused. */
     private renderVideoCounts(): void {
         const realtime = this.realtime;
         if (!realtime) return;
+        const total = this.totals.totals(this.classes.getMask());
+        const totalView = {
+            totalTitle: "Total",
+            total,
+            message: total.length === 0 ? "No objects counted yet. Play the video to count." : undefined,
+            canReset: true
+        };
         if (!this.videoEl.paused) {
-            this.countsPanel.render({ totalTitle: "Total", total: null, message: VIDEO_TOTAL_MESSAGE });
+            this.countsPanel.render(totalView);
             return;
         }
         const exact = realtime.hasExactResult() ? realtime.resultAt(this.player.getCurrentSeconds()) : null;
         this.countsPanel.render({
-            totalTitle: "Total",
-            total: null,
-            message: VIDEO_TOTAL_MESSAGE,
+            ...totalView,
             current: exact ? countByClass(this.filtered(exact.detections)) : null,
             currentMessage: exact ? undefined : "Detecting…"
         });
@@ -428,7 +520,8 @@ export class App {
                           playbackDropped: quality.droppedVideoFrames,
                           playbackTotal: quality.totalVideoFrames
                       }
-                    : null
+                    : null,
+            tracker: this.mediaKind === "video" ? { ...this.tracker.stats(), updateMs: this.lastTrackerMs } : null
         });
     }
 

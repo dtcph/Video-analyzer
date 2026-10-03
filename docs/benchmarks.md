@@ -239,3 +239,21 @@ A seek lands on the frame at or just before the target, so the first fresh resul
 - Weaker hardware, where the main risk is GPU contention with video decode.
 - Long playback (> 6 s per run).
 - Headed Chrome; all runs were headless. Headless reported 0 dropped video frames, but its compositor may differ from a visible window.
+
+## Phase 4: tracker cost and full-clip runs
+
+Measured 2026-10-03 with `npm run e2e:clips -- --build` (M4 Max, Chrome 154, headless, YOLOv8n, max 30 fps), each of the 7 clips played to the end once. Tracker time = main-thread `Tracker.update` per sampled frame (filtering, 3 association stages, Kalman), from `performance.now()`.
+
+| clip              | WebGPU inference fps | dropped samples | tracker ms p50 / p95 / max | WASM ×8 inference fps | dropped samples | tracker ms p50 / p95 / max |
+| ----------------- | -------------------- | --------------- | -------------------------- | --------------------- | --------------- | -------------------------- |
+| moving_car        | 28.4                 | 5%              | 0.05 / 0.08 / 0.34         | 22.1                  | 37%             | 0.05 / 0.08 / 0.34         |
+| moving_drone (4K) | 19.6                 | 13%             | 0.30 / 0.41 / 0.60         | 18.9                  | 24%             | 0.18 / 0.25 / 0.38         |
+| moving_drone-2    | 23.0                 | 19%             | 0.04 / 0.08 / 0.16         | 18.6                  | 40%             | 0.04 / 0.06 / 0.09         |
+| moving_handheld   | 30.2                 | 4%              | 0.02 / 0.02 / 0.05         | 17.0                  | 44%             | 0.01 / 0.02 / 0.05         |
+| moving_handheld-2 | 30.2                 | 0%              | 0.04 / 0.06 / 0.22         | 19.4                  | 34%             | 0.03 / 0.04 / 0.06         |
+| steady            | 28.5                 | 3%              | 0.02 / 0.03 / 0.07         | 18.1                  | 38%             | 0.02 / 0.03 / 0.05         |
+| steady-2          | 25.7                 | 9%              | 0.09 / 0.14 / 0.18         | 19.4                  | 39%             | 0.06 / 0.09 / 0.11         |
+
+- **The tracker costs ≤ 0.6 ms per frame** even on the busiest clip (moving_drone: ~40 tracks, 100+ raw detections), negligible next to inference. No reason to move it into the worker.
+- The 4K drone clips reach fewer inference fps on WebGPU here than in the 6 s Phase 3 runs (19.6–23 vs. 26–30): probably denser later sections and contention with 4K decode over a full playthrough (not investigated). 1080p and smaller stay at 25–30 fps.
+- Counts and the choice of tracker defaults: [clip-counts.md](clip-counts.md).

@@ -3,19 +3,27 @@ import type { Detection } from "../inference/postprocess";
 import { LABEL_TEXT_COLOR, classColor } from "./classColors";
 import type { OverlayLayer, OverlayView } from "./OverlayRenderer";
 
+/** A box to draw: a detection, optionally with the ID of the track it belongs to. */
+export interface DrawnBox extends Detection {
+    trackId?: number;
+}
+
 /**
  * Draws detection boxes with "class NN%" labels in the class color. Raw
  * detections (Debug: everything the model returned, before the user's
  * threshold and class filter) are drawn as thin dashed boxes underneath.
- * Draws only; never computes detections.
+ * With `showTrackIds`, labels start with the box's track ID ("#12 car 87%").
+ * Draws only; never computes detections or tracks.
  */
 export class DetectionLayer implements OverlayLayer {
-    private detections: readonly Detection[] = [];
+    private detections: readonly DrawnBox[] = [];
     private raw: readonly Detection[] | null = null;
+    private showTrackIds = false;
 
-    set(detections: readonly Detection[], raw: readonly Detection[] | null = null): void {
+    set(detections: readonly DrawnBox[], raw: readonly Detection[] | null = null, showTrackIds = false): void {
         this.detections = detections;
         this.raw = raw;
+        this.showTrackIds = showTrackIds;
     }
 
     clear(): void {
@@ -54,7 +62,8 @@ export class DetectionLayer implements OverlayLayer {
             ctx.strokeStyle = color;
             ctx.strokeRect(b.x, b.y, b.w, b.h);
 
-            const label = `${COCO_CLASSES[d.classId] ?? d.classId} ${Math.round(d.score * 100)}%`;
+            const id = this.showTrackIds && d.trackId !== undefined ? `#${d.trackId} ` : "";
+            const label = `${id}${COCO_CLASSES[d.classId] ?? d.classId} ${Math.round(d.score * 100)}%`;
             const labelWidth = ctx.measureText(label).width + pad * 2;
             // Above the box when there is room, else inside its top edge; never off-canvas horizontally.
             const lx = Math.min(Math.max(b.x - ctx.lineWidth / 2, 0), ctx.canvas.width - labelWidth);

@@ -70,4 +70,26 @@ describe("DetectionLayer", () => {
         expect(colors.size).toBe(80);
         expect(classColor(5)).toBe(classColor(5));
     });
+
+    it("prefixes labels with the track ID only when asked", () => {
+        const box = { x: 0.2, y: 0.5, width: 0.1, height: 0.1 };
+        const layer = new DetectionLayer();
+        const view = { mediaRect: { x: 0, y: 0, width: 1000, height: 600 }, timeSeconds: 0, pixelRatio: 1 };
+        const labels = () => {
+            const { ctx, calls } = recordingContext();
+            layer.render(ctx, view);
+            return calls.filter((c) => c.op === "fillText").map((c) => c.text);
+        };
+        layer.set(
+            [
+                { classId: 2, score: 0.9, box, trackId: 12 },
+                { classId: 2, score: 0.5, box }
+            ],
+            null,
+            true
+        );
+        expect(labels()).toEqual(["#12 car 90%", "car 50%"]);
+        layer.set([{ classId: 2, score: 0.9, box, trackId: 12 }], null, false);
+        expect(labels()).toEqual(["car 90%"]);
+    });
 });

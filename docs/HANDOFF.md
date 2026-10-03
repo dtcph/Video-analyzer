@@ -10,9 +10,10 @@
 | 1     | model export, ORT-Web WebGPU/WASM spike, benchmarks, decisions | done, approved                                    | `e37a4a3` |
 | 2     | image detection end to end                                     | done, approved                                    | `93b5ab8` |
 | 3     | realtime video                                                 | done, **approved by the user 2026-10-02**, closed | `e768321` |
-| **4** | **tracking + total counts**                                    | **next, not started**                             |           |
+| **4** | **tracking + total counts**                                    | **done 2026-10-03, awaiting the user's approval** |           |
 | 5     | webcam                                                         |                                                   |           |
 | 6     | pre-analysis mode                                              |                                                   |           |
+| 6b    | camera-motion compensation spike (added 2026-10-03)            | planned; go/no-go on measurement                  |           |
 | 7     | performance pass + release                                     |                                                   |           |
 
 - The branch is `V3`. Remote: `github.com/dtcph/Video-analyzer` (public). The user makes every commit themselves.
@@ -52,10 +53,10 @@
 | Default max inference rate   | 30 fps (Phase 3, approved with the phase).                                                                                                                       |
 | Repo rename                  | Question left unanswered; stays "Video-analyzer".                                                                                                                |
 
-**Not yet decided (see section 8; ask in one batch at the start of Phase 4):**
+| Track class and counting moment (2026-10-03) | Majority-vote class (score-weighted); each track **counted once, at confirmation**; its count then **follows the majority class** (moved on change, sum unchanged, ties keep the current class). Revised the same day from "never moved". |
+| Seek / rewind / replay (2026-10-03) | **Any seek clears tracks and keeps totals.** Rewinding or replaying counts again (documented); Reset counts clears both. |
 
-1. Whether each track gets a **majority-vote class** and is **counted once at confirmation under that class**. (Proposed; the user only approved the cross-class association part.)
-2. How totals behave on **seek / rewind / replay** during realtime analysis.
+Phase 4 results and the chosen tracker defaults (3 frames, 2 s): [clip-counts.md](clip-counts.md), [decisions.md](decisions.md) §6. Section 8 below is the plan as written before Phase 4.
 
 ## 5. Architecture in one page
 
@@ -192,4 +193,5 @@ Unit tests: **90 passing** at the end of Phase 3.
 - WebGPU IO binding / GPU tensors: deferred to Phase 7 (saving ≤ ~1 ms here; graph capture conflicts with dynamic shapes).
 - Phase 7 to-dos: `vercel.json` (COOP/COEP + immutable cache for `/assets/*`; verify with `curl -I` after the first deploy), `THIRD_PARTY_NOTICES` (onnxruntime-web is MIT), full README, `docs/performance.md`, pre-commit checklist, final CLAUDE.md. Repo rename question (unanswered).
 - Phase 5 notes: webcam `InputSource` + device picker; 1080p/24 fps from one config object; `MediaStreamTrackProcessor` only if measurably better than rVFC; the realtime pipeline (`RealtimeVideo`, tracker, totals, Reset) should be reused as-is.
+- Phase 6b (added by the user 2026-10-03, after Phase 6, before Phase 7): camera-motion compensation spike, plan in [decisions.md](decisions.md) §12. Pure TypeScript, no OpenCV; worker estimates global translation (+ scale) on a ~160×90 downscale with detected boxes masked; `Tracker.update` shifts predicted boxes; record the estimates in the clip runner and compare by offline replay; go/no-go on the numbers. Old V2 estimators in `old/src/analysis/` are reference only.
 - Phase 6 notes: Realtime / Pre-analysis selector; `AnalysisCache` interface with an in-memory implementation; playback locked until complete; decide (and tell the user) whether Stop discards or keeps a partial result (keep playback locked either way); "Settings changed, re-analyze" prompt; WebCodecs decoding evaluation; deterministic totals per cache. The class-filtering decision in decisions.md §5 (cache holds enabled-class detections only) was proposed there with an alternative (cache all classes), so mention it again.

@@ -11,6 +11,14 @@ export interface VideoDebugState {
     playbackTotal: number;
 }
 
+export interface TrackerDebugState {
+    tentative: number;
+    confirmed: number;
+    lost: number;
+    /** Main-thread time of the latest tracker update. */
+    updateMs: number;
+}
+
 export interface DebugState {
     model: ModelInfo | null;
     timings: StageTimings | null;
@@ -18,6 +26,7 @@ export interface DebugState {
     rawCount: number | null;
     shownCount: number | null;
     video?: VideoDebugState | null;
+    tracker?: TrackerDebugState | null;
 }
 
 /** Read-only diagnostics in the Debug section: backend, model, per-stage timings. */
@@ -59,6 +68,16 @@ export class DebugReadout {
                 ["Sampled frames dropped", `${video.dropped} / ${video.offered} (${dropRatio.toFixed(0)}%)`],
                 ["Latency capture→result", `${video.latencyMs.toFixed(0)} ms`],
                 ["Video frames dropped", `${video.playbackDropped} / ${video.playbackTotal}`]
+            );
+        }
+        const tracker = state.tracker;
+        if (tracker) {
+            rows.push(
+                [
+                    "Tracks tentative / confirmed / lost",
+                    `${tracker.tentative} / ${tracker.confirmed} / ${tracker.lost}`
+                ],
+                ["Tracker update", `${tracker.updateMs.toFixed(2)} ms`]
             );
         }
         this.element.replaceChildren(

@@ -147,7 +147,7 @@ export const SETTINGS_SCHEMA: { readonly [K in SettingKey]: SettingDef<Settings[
         max: 10,
         step: 1,
         format: "frames",
-        // Provisional: chosen by testing in Phase 4.
+        // Phase 4 clip tests (docs/clip-counts.md): 1–2 let flicker inflate totals 1.3–2.5×; 5 drops brief objects at low rates.
         default: 3
     },
     lostBufferSeconds: {
@@ -160,8 +160,8 @@ export const SETTINGS_SCHEMA: { readonly [K in SettingKey]: SettingDef<Settings[
         max: 5,
         step: 0.5,
         format: "seconds",
-        // Provisional: chosen by testing in Phase 4.
-        default: 1
+        // Phase 4 clip tests (docs/clip-counts.md): fewer re-counts than 1 s on every clip; 3 s adds nothing.
+        default: 2
     },
     backend: {
         kind: "choice",

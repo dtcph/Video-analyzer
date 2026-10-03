@@ -4,12 +4,19 @@ export interface ClassCount {
     classId: number;
     label: string;
     count: number;
+    /** The class is disabled: its total stays but no longer increases ("not counting"). */
+    inactive?: boolean;
 }
 
 /** Per-class counts of the given detections, most frequent first, then alphabetical. */
 export function countByClass(detections: readonly { classId: number }[]): ClassCount[] {
     const counts = new Map<number, number>();
     for (const d of detections) counts.set(d.classId, (counts.get(d.classId) ?? 0) + 1);
+    return toClassCounts(counts);
+}
+
+/** Class id → count, as sorted ClassCounts (most frequent first, then alphabetical). */
+export function toClassCounts(counts: ReadonlyMap<number, number>): ClassCount[] {
     return [...counts]
         .map(([classId, count]) => ({ classId, label: COCO_CLASSES[classId] ?? `class ${classId}`, count }))
         .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));

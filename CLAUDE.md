@@ -13,18 +13,19 @@ It targets Chrome/Chromium only. There is no backend, accounts, persistence, rec
 
 **Resuming? Read [docs/HANDOFF.md](docs/HANDOFF.md) first** (state, user decisions, environment, gotchas, the Phase 4 plan); the original requirements are in [docs/BRIEF.md](docs/BRIEF.md).
 
-Work proceeds in phases 0–7. Each phase ends with a report, and the next one starts only after the user approves. Never make git commits: the user commits after review.
+Work proceeds in phases 0–7, plus 6b (camera-motion spike, added 2026-10-03). Each phase ends with a report, and the next one starts only after the user approves. Never make git commits: the user commits after review.
 
-| phase | content                                                                      | status |
-| ----- | ---------------------------------------------------------------------------- | ------ |
-| 0     | archive old project, scaffold, port reusable modules                         | done   |
-| 1     | spike: model export, ORT-Web on WebGPU/WASM, benchmarks, `docs/decisions.md` | done   |
-| 2     | image detection end-to-end                                                   | done   |
-| 3     | realtime video                                                               | done   |
-| 4     | tracking + total counts                                                      | next   |
-| 5     | webcam                                                                       |        |
-| 6     | pre-analysis mode                                                            |        |
-| 7     | performance pass + release                                                   |        |
+| phase | content                                                                       | status                   |
+| ----- | ----------------------------------------------------------------------------- | ------------------------ |
+| 0     | archive old project, scaffold, port reusable modules                          | done                     |
+| 1     | spike: model export, ORT-Web on WebGPU/WASM, benchmarks, `docs/decisions.md`  | done                     |
+| 2     | image detection end-to-end                                                    | done                     |
+| 3     | realtime video                                                                | done                     |
+| 4     | tracking + total counts                                                       | done (awaiting approval) |
+| 5     | webcam                                                                        |                          |
+| 6     | pre-analysis mode                                                             |                          |
+| 6b    | camera-motion compensation spike (measured go/no-go, `docs/decisions.md` §12) |                          |
+| 7     | performance pass + release                                                    |                          |
 
 ## `old/` is an archive
 
@@ -49,6 +50,12 @@ npm run e2e [-- --build] [--headed]
                        # WASM + YOLOv8s, cache; --build tests the production bundle. Report: .cache/e2e/
 npm run e2e:video [-- --build] [--seconds 6]
                        # 3 clips × WebGPU/WASM × 15/30 fps: rates, drops, latency, box lag, pause/seek checks
+npm run e2e:counts [-- --build]   # Total section: grows while playing, pause adds nothing, seek keeps totals,
+                       # disabled class "not counting", Reset counts
+npm run e2e:clips [-- --build] [--backend wasm] [--label name]
+                       # plays all 7 test-vid/ clips to the end (1×), records tracker input + totals + ID screenshots
+                       # to .cache/e2e/clip-counts/<label>/; replay with other tracker parameters:
+node scripts/e2e/sweepTracker.ts [--label name] [--every 2] [--detail clip.mp4]
 npm run bench -- --plan smoke|full|rect|release [--shots] [--headed]
                        # in-browser ORT benchmark via bench.html + installed Chrome (puppeteer-core)
 .venv-export/bin/python scripts/export_models.py --set release|benchmark   # see scripts/export-model.md
@@ -89,21 +96,38 @@ src/
               (willReadFrequently) canvas for ImageBitmaps; both measured.
   bench/      Phase 1 spike (bench.html, dev server only, not in the build): one ORT session per
               worker, per-stage timing, draws detections; driven by scripts/bench/runBrowserBench.ts.
-  tracking/   No DOM. AssignmentSolver (Hungarian). Tracker in Phase 4.
-  counting/   No DOM. countByClass, English summary ("3 people, 2 dogs, 1 car").
+  tracking/   No DOM. Tracker (ByteTrack-style: 3 association stages, tentative/confirmed/lost, majority-vote
+              class, newlyConfirmed reported once; internal constants in DEFAULT_TUNING), BoxKalmanFilter
+              (constant velocity, variable dt in media seconds), association (IoU − class penalty, buffered IoU
+              for lost tracks, Hungarian via AssignmentSolver; trackIdsFor labels the paused frame).
+  counting/   No DOM. countByClass, English summary ("3 people, 2 dogs, 1 car"); TotalCounter (session totals,
+              inactive = disabled class, "not counting").
   rendering/  Canvas 2D only. OverlayRenderer: one DPR-sized canvas over the media, layers get the
               letterboxed media rect + pixelRatio; while a video plays it redraws per presented frame
-              (startVideoLoop, exact media time); onBeforeRender hook picks the detections for that time. DetectionLayer (boxes +
-              "class NN%" labels, raw detections dashed); classColors (fixed color per class).
+              (startVideoLoop, exact media time); onBeforeRender hook picks the boxes for that time. DetectionLayer (boxes +
+              "#id class NN%" labels, raw detections dashed; data-only DrawnBox); classColors (fixed color per class).
   ui/         Plain DOM panels: SettingsPanel (generated from the schema; Advanced/Debug <details>
               closed on every load; Reset to defaults), ClassGroupPanel (tri-state groups, expandable),
               CountsPanel (Total / Current frame / Reset), ModelStatusPanel (progress, notes, Retry),
               DebugReadout, UploadPanel, PlaybackControls.
   app/        App.ts: the only module that knows everything; builds the layout and wires services.
-              RealtimeVideo: sampling → gate → worker → hold; pause/seek/end handling via an epoch counter.
-              The stage element exposes data-draw-time / data-result-time / data-boxes for the e2e scripts.
+              RealtimeVideo: sampling → gate → worker → hold; pause/seek/end handling via an epoch counter;
+              onSampledResult (forward-played frames only) feeds App's Tracker → TotalCounter; onSeek clears tracks.
+              The stage element exposes data-draw-time / data-result-time / data-boxes for the e2e scripts, and
+              with data-trace="1" dispatches a "trackerupdate" event per tracker update (clip runner).
   utils/      Pure helpers: geometry (top-left Box, IoU, contain/fit), format, math.
 ```
+
+**Tracking and counting (Phase 4):** only frames sampled during forward playback feed the tracker (class mask applied, scores ≥ 0.1); the paused frame's detection never does. While playing, boxes are tracks extrapolated to the displayed time; while paused, the frame's own detections (= "Current frame"). Total = confirmed tracks per class: each track is counted once, at confirmation, and its count follows its majority class (moved on change, sum unchanged). Reset counts clears totals and tracks; a class change drops tracks of disabled classes and marks their totals "not counting".
+
+### Known limitations (tracking and counting)
+
+- **ID switches re-count objects.** No camera-motion compensation yet (planned as Phase 6b, no OpenCV): panning or handheld footage over-counts about 2× (`moving_car`, `moving_handheld-2`). Occlusion plus fast scale change also breaks tracks (`steady.mp4`: 1 person → 3 tracks). A switch can also move an ID onto another object, which hides a count.
+- **Re-entry is counted again:** an object that leaves (or is hidden) longer than the track-lost buffer (default 2 s) gets a new track.
+- **Scene cuts** start new tracks for everything (`steady.mp4` at 14.38 s).
+- **Seeking, rewinding or replaying counts again** (user decision); Reset counts before replaying. Pre-analysis (Phase 6) will give deterministic totals.
+- **A track's class is only as good as the model's majority over that track:** after an ID switch each piece votes on its own (the near-camera `steady.mp4` dog is mostly "horse" to YOLOv8n, so that piece counts as a horse). Per-class totals can shift while playing; the sum does not.
+- **Small objects** (4K drone footage) are under-detected by YOLOv8n, so totals are low there; slower devices (lower inference rate) confirm fewer brief objects, since N counts frames.
 
 **Detection data flow:** the worker returns everything above the 0.05 score floor after class-aware NMS; the main thread applies the confidence threshold and class mask (`filterDetections`). That is provably equivalent to filtering before NMS (tested), so slider and class changes never need a new inference run. IoU / input size re-run detection; model size / backend reload the model.
 
@@ -114,7 +138,7 @@ Boxes use a top-left origin (`Box {x, y, width, height}`), in pixels or normaliz
 - `public/models/` (committed, reproducible export, SHA-256 in `manifest.json`): `yolov8n-640-dyn-fp16.onnx` (default), `yolov8n-640-dyn.onnx` (FP32 fallback for WebGPU without `shader-f16`), `yolov8s-640-dyn-fp16.onnx` ("Accurate"). Dynamic H/W; output `[1, 84, N]`, NMS in JS.
 - Default input: 640 long side, **rect** letterbox (short side padded to a multiple of 32, 640x384 for 16:9). Matches Ultralytics' predictions exactly.
 - Runtime: onnxruntime-web **1.30.0 (pinned)**. Native WebGPU EP (`onnxruntime-web/webgpu`) when an adapter exists, else plain WASM (`onnxruntime-web/wasm`) with `clamp(cores/2, 1, 8)` threads. Threads need COOP/COEP.
-- Tracker (Phase 4, user decision): associate across classes with an IoU penalty for a class mismatch; majority-vote class and count-once-at-confirmation still need the user's confirmation.
+- Tracker (Phase 4, `docs/decisions.md` §6, evidence in `docs/clip-counts.md`): user decisions: associate across classes (IoU − 0.2 on a class mismatch); majority-vote class, counted once at confirmation, count follows the majority class; any seek clears tracks and keeps totals. Defaults chosen on the clips: confirmation 3 frames, lost buffer 2 s.
 - Hosting: Vercel (user deploys later). `vercel.json` sets COOP/COEP (Phase 7). Hobby limit 100 MB static files; `dist/` budget ~81 MB, so no extra model variants and no JSEP build in the app bundle.
 - Benchmark candidates live in `.cache/models-bench/` (gitignored, outside `public/` so they never reach `dist/`).
 

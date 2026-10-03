@@ -334,6 +334,14 @@ select {
     font-variant-numeric: tabular-nums;
 }
 
+.counts-row.is-inactive {
+    color: var(--text-dim);
+}
+
+.counts-tag {
+    font-size: 11px;
+}
+
 .counts-reset {
     align-self: flex-start;
 }

@@ -11,6 +11,14 @@ import { RateMeter } from "../utils/RateMeter";
 export interface RealtimeVideoDeps {
     /** Runs detection with the current settings; resolves null when no model is available (frame already closed). */
     detect(frame: CapturedFrame): Promise<DetectResult | null>;
+    /**
+     * Detections of a frame sampled during forward playback, in capture order:
+     * the tracker's input. Called before `onUpdate`. Paused-frame detections
+     * are never passed here, so pausing or seeking cannot count an object twice.
+     */
+    onSampledResult(mediaTime: number, result: DetectResult): void;
+    /** A seek started: the scene jumps, so tracks must be dropped. */
+    onSeek(): void;
     /** A new result was accepted or the shown result was cleared (seek). */
     onUpdate(): void;
     onError(message: string): void;
@@ -33,7 +41,9 @@ export interface RealtimeStats extends FrameGateStats {
  * - on pause, after a seek while paused, and at the end, the displayed frame
  *   itself is detected (never dropped), so "Current frame" counts match it;
  * - a seek clears the shown boxes at once and discards in-flight results
- *   from before the seek (epoch counter).
+ *   from before the seek (epoch counter);
+ * - results of frames sampled while playing go to the tracker
+ *   (`onSampledResult`); paused-frame results only feed the display.
  */
 export class RealtimeVideo {
     readonly hold = new DetectionHold(0.5);
@@ -67,6 +77,7 @@ export class RealtimeVideo {
         const onSeeking = () => {
             this.epoch++;
             this.hold.clear();
+            this.deps.onSeek();
             this.deps.onUpdate();
         };
         const onSeeked = () => {
@@ -119,7 +130,7 @@ export class RealtimeVideo {
         if (!this.gate.tryAcquire()) return; // dropped: the previous frame is still in flight
         const epoch = this.epoch;
         void this.source.captureFrame(mediaTime).then(
-            (frame) => this.run(frame, mediaTime, epoch),
+            (frame) => this.run(frame, mediaTime, epoch, true),
             () => this.gate.release() // a missed sample, counted by the gate as accepted but never completed
         );
     }
@@ -153,16 +164,17 @@ export class RealtimeVideo {
             this.gate.release();
             return;
         }
-        await this.run(frame, mediaTime, epoch);
+        await this.run(frame, mediaTime, epoch, false);
     }
 
-    private async run(frame: CapturedFrame, mediaTime: number, epoch: number): Promise<void> {
+    private async run(frame: CapturedFrame, mediaTime: number, epoch: number, sampled: boolean): Promise<void> {
         try {
             const result = await this.deps.detect(frame);
             if (!result || epoch !== this.epoch) return;
             this.lastResult = result;
             this.meter.record();
             this.hold.set({ mediaTime, detections: result.detections });
+            if (sampled) this.deps.onSampledResult(mediaTime, result);
             this.deps.onUpdate();
         } catch (error) {
             if (epoch === this.epoch) this.deps.onError(error instanceof Error ? error.message : String(error));
