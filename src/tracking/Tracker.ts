@@ -306,6 +306,22 @@ export class Tracker {
         this.tracks = this.tracks.filter((t) => enabled[t.classId] === 1);
     }
 
+    /**
+     * A live source was paused for `seconds`: shift every stored time forward
+     * by that much, so the next update continues as if no time had passed.
+     * Tracks keep their IDs and do not age or drift (no extrapolation over the
+     * pause); objects still in view after resuming are not counted again.
+     */
+    skip(seconds: number): void {
+        if (!(seconds > 0) || this.lastTime === null) return;
+        this.lastTime += seconds;
+        for (const track of this.tracks) {
+            track.time += seconds;
+            track.firstSeen += seconds;
+            track.lastSeen += seconds;
+        }
+    }
+
     /** Drops all tracks (a seek). `resetIds` also restarts IDs at 1 (Reset counts, new media). */
     clear(resetIds = false): void {
         this.tracks = [];

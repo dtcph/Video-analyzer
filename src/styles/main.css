@@ -162,6 +162,30 @@ a {
     gap: 12px;
 }
 
+/* Webcam */
+
+.webcam-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.webcam-controls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+}
+
+.webcam-device {
+    max-width: 280px;
+}
+
+.webcam-panel .upload-error {
+    border-top: none;
+    padding: 0;
+}
+
 .playback-scrubber {
     flex: 1;
     min-width: 0;

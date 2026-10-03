@@ -1,3 +1,4 @@
+import { WEBCAM_CONFIG } from "../input/webcam";
 import type { ModelInfo, StageTimings } from "../inference/InferenceMessages";
 
 export interface VideoDebugState {
@@ -19,6 +20,13 @@ export interface TrackerDebugState {
     updateMs: number;
 }
 
+export interface CameraDebugState {
+    label: string;
+    width: number;
+    height: number;
+    frameRate: number | null;
+}
+
 export interface DebugState {
     model: ModelInfo | null;
     timings: StageTimings | null;
@@ -27,6 +35,7 @@ export interface DebugState {
     shownCount: number | null;
     video?: VideoDebugState | null;
     tracker?: TrackerDebugState | null;
+    camera?: CameraDebugState | null;
 }
 
 /** Read-only diagnostics in the Debug section: backend, model, per-stage timings. */
@@ -68,6 +77,17 @@ export class DebugReadout {
                 ["Sampled frames dropped", `${video.dropped} / ${video.offered} (${dropRatio.toFixed(0)}%)`],
                 ["Latency capture→result", `${video.latencyMs.toFixed(0)} ms`],
                 ["Video frames dropped", `${video.playbackDropped} / ${video.playbackTotal}`]
+            );
+        }
+        const camera = state.camera;
+        if (camera) {
+            const { width, height, frameRate } = WEBCAM_CONFIG;
+            rows.push(
+                ["Camera", camera.label || "—"],
+                [
+                    "Camera mode (asked)",
+                    `${camera.width}×${camera.height}${camera.frameRate ? ` @ ${Math.round(camera.frameRate)} fps` : ""} (${width}×${height} @ ${frameRate})`
+                ]
             );
         }
         const tracker = state.tracker;

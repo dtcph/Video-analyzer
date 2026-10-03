@@ -7,11 +7,13 @@ import type { Detection } from "../inference/postprocess";
 import { filterDetections } from "../inference/postprocess";
 import { ImageSource } from "../input/ImageSource";
 import { VideoSource } from "../input/VideoSource";
-import type { InputSource } from "../input/InputSource";
+import type { InputKind, InputSource } from "../input/InputSource";
 import { checkMediaFile } from "../input/MediaFiles";
 import type { MediaKind } from "../input/MediaFiles";
 import type { CapturedFrame } from "../input/MediaTypes";
 import { VideoPlayer } from "../input/VideoPlayer";
+import { CAMERA_DISCONNECTED_MESSAGE, cameraErrorMessage } from "../input/webcam";
+import { WebcamSource } from "../input/WebcamSource";
 import { DetectionLayer } from "../rendering/DetectionLayer";
 import type { DrawnBox } from "../rendering/DetectionLayer";
 import { OverlayRenderer } from "../rendering/OverlayRenderer";
@@ -26,6 +28,7 @@ import { ModelStatusPanel } from "../ui/ModelStatusPanel";
 import { PlaybackControls } from "../ui/PlaybackControls";
 import { SettingsPanel } from "../ui/SettingsPanel";
 import { UploadPanel } from "../ui/UploadPanel";
+import { WebcamPanel } from "../ui/WebcamPanel";
 import { trackIdsFor } from "../tracking/association";
 import { DEFAULT_TUNING, Tracker } from "../tracking/Tracker";
 import type { Size } from "../utils/geometry";
@@ -46,6 +49,9 @@ const MAX_TRACK_DISPLAY_AGE = 0.5;
 
 const CLASS_CHANGE_NOTE = "Class changes apply from now on; earlier counts are not recomputed.";
 
+const EMPTY_MESSAGE = "Load an image or video, or start the camera, to start counting.";
+const CAMERA_STOPPED_MESSAGE = "Camera stopped. Start it again to continue counting, or press Reset counts.";
+
 /**
  * Top-level wiring: builds the DOM shell, owns the services and connects
  * UI events to them. The only module that knows about all the pieces.
@@ -55,6 +61,8 @@ const CLASS_CHANGE_NOTE = "Class changes apply from now on; earlier counts are n
  * tracker, whose newly confirmed tracks are added to the totals (Phase 4).
  * While playing, boxes are the tracks predicted at the displayed time; while
  * paused, the paused frame's own detections ("Current frame" counts).
+ * Webcam (Phase 5): the same realtime pipeline on a live stream; stopping
+ * releases the camera and keeps the totals until Reset or a file is loaded.
  */
 export class App {
     private readonly settings = new SettingsStore();
@@ -63,6 +71,7 @@ export class App {
         checkMediaFile(file, (type) => this.videoEl.canPlayType(type))
     );
     private readonly playbackControls = new PlaybackControls();
+    private readonly webcamPanel = new WebcamPanel();
     private readonly settingsPanel = new SettingsPanel(this.settings);
     private readonly classPanel = new ClassGroupPanel(this.classes);
     private readonly countsPanel = new CountsPanel();
@@ -88,7 +97,9 @@ export class App {
     private modelInfo: ModelInfo | null = null;
     private modelGeneration = 0;
 
-    private mediaKind: MediaKind | null = null;
+    private mediaKind: InputKind | null = null;
+    /** Invalidates a camera start that finishes after another start, a stop or a file load. */
+    private cameraGeneration = 0;
     private source: InputSource | null = null;
     private realtime: RealtimeVideo | null = null;
     private debugTimer: number | null = null;
@@ -123,7 +134,7 @@ export class App {
 
         const main = document.createElement("main");
         main.className = "app-main";
-        main.append(this.uploadPanel.element, this.stageEl, this.playbackControls.element);
+        main.append(this.uploadPanel.element, this.webcamPanel.element, this.stageEl, this.playbackControls.element);
 
         this.settingsPanel.debugBody.appendChild(this.debugReadout.element);
 
@@ -156,7 +167,7 @@ export class App {
         this.player = new VideoPlayer(this.videoEl);
         this.overlay = new OverlayRenderer(this.stageEl.querySelector(".media-overlay") as HTMLCanvasElement, {
             mediaSize: () => this.mediaSize(),
-            timeSeconds: () => (this.mediaKind === "video" ? this.player.getCurrentSeconds() : 0)
+            timeSeconds: () => (this.isStream() ? this.player.getCurrentSeconds() : 0)
         });
         this.overlay.addLayer(this.detectionLayer);
         // Every draw picks the detections that belong to the media time being drawn.
@@ -169,7 +180,10 @@ export class App {
             if (state === "playing") this.overlay.startVideoLoop(this.videoEl);
             else this.overlay.stopLoop();
             if (state === "ready" || state === "paused") this.overlay.renderOnce();
-            if (this.mediaKind === "video") this.renderVideoCounts();
+            if (this.mediaKind === "webcam" && this.source && (state === "playing" || state === "paused")) {
+                this.webcamPanel.setState(state === "playing" ? "live" : "paused");
+            }
+            if (this.isStream()) this.renderVideoCounts();
         });
         this.videoEl.addEventListener("timeupdate", () =>
             this.playbackControls.setCurrentTime(this.player.getCurrentSeconds())
@@ -179,6 +193,12 @@ export class App {
         this.playbackControls.onPlayPause(() => this.player.togglePlayback());
         this.playbackControls.onSeek((seconds) => this.player.seekToSeconds(seconds));
         this.countsPanel.onReset(() => this.resetCounts());
+
+        this.webcamPanel.onStart((deviceId) => void this.startCamera(deviceId));
+        this.webcamPanel.onStop(() => this.stopCamera());
+        this.webcamPanel.onPauseToggle(() => this.player.togglePlayback());
+        this.webcamPanel.onDeviceChange((deviceId) => void this.startCamera(deviceId));
+        navigator.mediaDevices?.addEventListener?.("devicechange", () => void this.refreshCameraList());
     }
 
     private wireSettings(): void {
@@ -213,7 +233,7 @@ export class App {
 
     private wireKeyboard(): void {
         window.addEventListener("keydown", (event) => {
-            if (event.code !== "Space" || this.mediaKind !== "video") return;
+            if (event.code !== "Space" || !this.isStream() || !this.source) return;
             const target = event.target as HTMLElement | null;
             if (target && target.closest("input, select, textarea, button, [role='button']")) return;
             event.preventDefault();
@@ -292,6 +312,9 @@ export class App {
 
     private unloadMedia(): void {
         this.detectionGeneration++;
+        this.cameraGeneration++;
+        this.webcamPanel.setState("off");
+        this.webcamPanel.setStatus(null);
         this.realtime?.dispose();
         this.realtime = null;
         this.tracker.clear(true);
@@ -313,9 +336,112 @@ export class App {
         this.countsPanel.render({
             totalTitle: "Total",
             total: null,
-            message: "Load an image or video to start counting."
+            message: EMPTY_MESSAGE
         });
         this.renderDebug();
+    }
+
+    /**
+     * Starts the camera (or switches to another one). A first start replaces any
+     * loaded file; a restart after Stop, or a camera switch, keeps the totals
+     * and only drops the tracks (the scene changes).
+     */
+    private async startCamera(deviceId: string | null): Promise<void> {
+        const continuing = this.mediaKind === "webcam";
+        if (continuing) this.releaseCamera();
+        else this.unloadMedia();
+        // After the cleanup above (unloadMedia also bumps the generation).
+        const generation = ++this.cameraGeneration;
+        this.uploadPanel.clearError();
+        this.webcamPanel.clearError();
+        this.webcamPanel.setState("starting");
+
+        let source: WebcamSource | null = null;
+        try {
+            source = await WebcamSource.open(this.player, deviceId);
+            if (generation !== this.cameraGeneration) {
+                source.dispose();
+                return;
+            }
+            await source.show();
+        } catch (error) {
+            if (generation !== this.cameraGeneration) return;
+            source?.dispose();
+            this.webcamPanel.setState("off");
+            this.webcamPanel.showError(cameraErrorMessage(error));
+            this.renderVideoCounts();
+            return;
+        }
+        if (generation !== this.cameraGeneration) {
+            source.dispose();
+            return;
+        }
+
+        this.mediaKind = "webcam";
+        this.source = source;
+        this.stageEl.hidden = false;
+        this.videoEl.hidden = false;
+        this.imageEl.hidden = true;
+        source.onEnded(() => this.stopCamera(CAMERA_DISCONNECTED_MESSAGE));
+        this.realtime = new RealtimeVideo(
+            source,
+            {
+                detect: (frame) => this.detectFrame(frame),
+                onSampledResult: (mediaTime, result) => this.track(mediaTime, result),
+                onSeek: () => this.tracker.clear(),
+                // The stream clock ran on while paused: skip that time so tracks continue as if there was no pause.
+                onLiveResume: (pausedAt, resumedAt) =>
+                    this.tracker.skip(resumedAt - pausedAt - 1 / this.settings.get("maxInferenceFps")),
+                onUpdate: () => this.onVideoResult(),
+                onError: (message) => this.webcamPanel.showError(`Detection failed: ${message}`)
+            },
+            this.settings.get("maxInferenceFps")
+        );
+        this.classPanel.setNote(CLASS_CHANGE_NOTE);
+        this.debugTimer = window.setInterval(() => this.renderDebug(), 500);
+        this.webcamPanel.setState("live");
+        this.player.play();
+        this.renderVideoCounts();
+        this.overlay.renderOnce();
+        await this.refreshCameraList();
+    }
+
+    /** Stop camera: releases it (all tracks stopped) and keeps the totals visible. */
+    private stopCamera(errorMessage?: string): void {
+        if (this.mediaKind !== "webcam") return;
+        this.cameraGeneration++;
+        this.releaseCamera();
+        this.webcamPanel.setState("off");
+        this.webcamPanel.setStatus(null);
+        if (errorMessage) this.webcamPanel.showError(errorMessage);
+        this.stageEl.hidden = true;
+        this.renderVideoCounts();
+        this.renderDebug();
+    }
+
+    /** Releases the camera and the realtime pipeline; totals stay, tracks go. */
+    private releaseCamera(): void {
+        this.realtime?.dispose();
+        this.realtime = null;
+        this.tracker.clear();
+        if (this.debugTimer !== null) window.clearInterval(this.debugTimer);
+        this.debugTimer = null;
+        this.source?.dispose();
+        this.source = null;
+        this.detectionLayer.clear();
+        this.overlay.stopLoop();
+        this.overlay.renderOnce();
+    }
+
+    private async refreshCameraList(): Promise<void> {
+        const source = this.source;
+        if (!(source instanceof WebcamSource)) return;
+        const devices = await WebcamSource.listCameras();
+        if (source !== this.source) return;
+        const mode = source.mode();
+        this.webcamPanel.setDevices(devices, mode.deviceId);
+        const fps = mode.frameRate ? ` at ${Math.round(mode.frameRate)} fps` : "";
+        this.webcamPanel.setStatus(`${mode.label || "Camera"}: ${mode.width}×${mode.height}${fps}`);
     }
 
     /** Runs the model on the current image; stale results (newer media or settings) are discarded. */
@@ -419,7 +545,7 @@ export class App {
 
     /** The unfiltered detections for the frame at `timeSeconds`. */
     private rawAt(timeSeconds: number): Detection[] | null {
-        if (this.mediaKind === "video") return this.realtime?.resultAt(timeSeconds)?.detections ?? null;
+        if (this.isStream()) return this.realtime?.resultAt(timeSeconds)?.detections ?? null;
         return this.rawDetections;
     }
 
@@ -433,7 +559,7 @@ export class App {
         const showIds = this.settings.get("showTrackIds");
         let shown: DrawnBox[];
         let resultTime = "";
-        if (this.mediaKind !== "video") {
+        if (!this.isStream()) {
             shown = raw ? this.filtered(raw) : [];
         } else if (this.videoEl.paused && this.realtime?.hasExactResult()) {
             // Paused: the frame's own detections (what "Current frame" counts), labeled with overlapping tracks.
@@ -462,7 +588,7 @@ export class App {
     /** Applies threshold and class selection to the current results: boxes, counts and debug, no new inference. */
     private refresh(): void {
         this.overlay.renderOnce();
-        if (this.mediaKind === "video") {
+        if (this.isStream()) {
             this.renderVideoCounts();
         } else if (this.rawDetections) {
             // For a still image the frame's counts are the total.
@@ -474,15 +600,31 @@ export class App {
         this.renderDebug();
     }
 
-    /** Video: totals (unique confirmed tracks) always; the current-frame section only while paused. */
+    /** Video and webcam: totals (unique confirmed tracks) always; the current-frame section only while paused. */
     private renderVideoCounts(): void {
         const realtime = this.realtime;
-        if (!realtime) return;
         const total = this.totals.totals(this.classes.getMask());
+        if (!realtime) {
+            // Camera stopped (or failed to start again): the session's totals stay until Reset.
+            if (this.mediaKind === "webcam") {
+                this.countsPanel.render({
+                    totalTitle: "Total",
+                    total,
+                    message: CAMERA_STOPPED_MESSAGE,
+                    canReset: true
+                });
+            }
+            return;
+        }
         const totalView = {
             totalTitle: "Total",
             total,
-            message: total.length === 0 ? "No objects counted yet. Play the video to count." : undefined,
+            message:
+                total.length > 0
+                    ? undefined
+                    : this.mediaKind === "webcam"
+                      ? "No objects counted yet."
+                      : "No objects counted yet. Play the video to count.",
             canReset: true
         };
         if (!this.videoEl.paused) {
@@ -501,8 +643,8 @@ export class App {
         const realtime = this.realtime;
         const stats = realtime?.stats() ?? null;
         const result = stats?.lastResult ?? null;
-        const raw = this.rawAt(this.mediaKind === "video" ? this.player.getCurrentSeconds() : 0);
-        const quality = this.mediaKind === "video" ? this.videoEl.getVideoPlaybackQuality() : null;
+        const raw = this.rawAt(this.isStream() ? this.player.getCurrentSeconds() : 0);
+        const quality = this.isStream() && this.source ? this.videoEl.getVideoPlaybackQuality() : null;
         this.debugReadout.render({
             model: this.modelInfo,
             timings: result?.timings ?? this.lastTimings,
@@ -521,12 +663,18 @@ export class App {
                           playbackTotal: quality.totalVideoFrames
                       }
                     : null,
-            tracker: this.mediaKind === "video" ? { ...this.tracker.stats(), updateMs: this.lastTrackerMs } : null
+            tracker: this.isStream() ? { ...this.tracker.stats(), updateMs: this.lastTrackerMs } : null,
+            camera: this.source instanceof WebcamSource ? this.source.mode() : null
         });
     }
 
+    /** Video file or live camera: the realtime pipeline with tracking and totals. */
+    private isStream(): boolean {
+        return this.mediaKind === "video" || this.mediaKind === "webcam";
+    }
+
     private mediaSize(): Size | null {
-        if (this.mediaKind === "video" && this.videoEl.videoWidth > 0) {
+        if (this.isStream() && this.videoEl.videoWidth > 0) {
             return { width: this.videoEl.videoWidth, height: this.videoEl.videoHeight };
         }
         return this.source?.frameSize() ?? null;

@@ -285,6 +285,42 @@ describe("Tracker: time, reset and classes", () => {
     });
 });
 
+describe("Tracker: skip (live pause)", () => {
+    it("continues a moving track after a pause as if no time had passed", () => {
+        const plain = tracker();
+        run(plain, moving(0, 10));
+        // Paused for 3 s, the object reappears where it was: without skip, the prediction ran 3 s ahead.
+        plain.update(9 * DT + 3, moving(10, 11)[0]);
+        expect(plain.snapshot().map((s) => s.id)).toEqual([1, 2]);
+
+        const skipped = tracker();
+        run(skipped, moving(0, 10));
+        skipped.skip(3);
+        const update = skipped.update(9 * DT + 3 + DT, moving(10, 11)[0]);
+        expect(update.newlyConfirmed).toHaveLength(0);
+        expect(skipped.snapshot()).toMatchObject([{ id: 1, state: "confirmed" }]);
+    });
+
+    it("does not expire a lost track during the pause", () => {
+        const t = tracker({ lostBufferSeconds: 1 });
+        run(t, moving(0, 5));
+        t.update(5 * DT, []);
+        t.skip(10);
+        t.update(6 * DT + 10, [det(0.1 + 0.005 * 6)]);
+        expect(t.snapshot()).toMatchObject([{ id: 1, state: "confirmed" }]);
+    });
+
+    it("ignores a skip without tracks or with a non-positive duration", () => {
+        const t = tracker();
+        t.skip(5);
+        expect(t.getLastTime()).toBeNull();
+        t.update(1, [det(0.5)]);
+        t.skip(-1);
+        t.skip(Number.NaN);
+        expect(t.getLastTime()).toBe(1);
+    });
+});
+
 describe("Tracker: visibleAt", () => {
     it("extrapolates boxes to the display time", () => {
         const t = tracker();

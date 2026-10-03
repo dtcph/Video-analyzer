@@ -47,7 +47,11 @@ export class CountsPanel {
         this.currentBody = this.element.querySelector(".counts-current-body") as HTMLElement;
         this.resetButton = this.element.querySelector(".counts-reset") as HTMLButtonElement;
         this.resetButton.addEventListener("click", () => this.onResetHandler?.());
-        this.render({ totalTitle: "Total", total: null, message: "Load an image or video to start counting." });
+        this.render({
+            totalTitle: "Total",
+            total: null,
+            message: "Load an image or video, or start the camera, to start counting."
+        });
     }
 
     onReset(handler: () => void): void {

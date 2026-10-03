@@ -25,7 +25,7 @@ export async function serveApp(port: number, production: boolean): Promise<AppSe
     return { url: `http://localhost:${port}/`, close: () => server.close() };
 }
 
-export async function launchChrome(headed: boolean): Promise<Browser> {
+export async function launchChrome(headed: boolean, extraArgs: string[] = []): Promise<Browser> {
     return puppeteer.launch({
         executablePath: CHROME_PATH,
         headless: !headed,
@@ -33,7 +33,8 @@ export async function launchChrome(headed: boolean): Promise<Browser> {
             "--enable-unsafe-webgpu",
             "--use-angle=metal",
             "--no-first-run",
-            "--autoplay-policy=no-user-gesture-required"
+            "--autoplay-policy=no-user-gesture-required",
+            ...extraArgs
         ]
     });
 }

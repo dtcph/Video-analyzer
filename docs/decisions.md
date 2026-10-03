@@ -58,7 +58,7 @@ Evidence is in [benchmarks.md](benchmarks.md). All measurements come from one hi
 - **Advanced "Inference input size"** stays at 320 / 416 / 640 (long side). The UI notes that smaller sizes miss small objects: recall against 640 was 0.29 / 0.42 on the test clips.
 - **Slow devices should keep 640 and lower the inference rate** (degrade gracefully) rather than shrink the input. Phase 3 measures this on video.
 - **Letterbox implementation:** OffscreenCanvas 2D `drawImage` with gray 114 padding (`src/inference/preprocess.ts`). It costs 1.1 ms per frame here.
-- **GPU preprocessing / IO binding is deferred to Phase 7.** ORT 1.30 supports it, but the saving is at most ~1 ms per frame here, and graph capture would need static shapes.
+- **GPU preprocessing / IO binding is deferred to Phase 8 (performance pass).** ORT 1.30 supports it, but the saving is at most ~1 ms per frame here, and graph capture would need static shapes.
 
 ## 4. NMS: in JavaScript, class-aware
 
@@ -156,7 +156,7 @@ Final design, built and measured in Phase 4. Evidence and per-clip numbers: [cli
   }
   ```
 
-  It is added in Phase 7 together with the deployment checklist. It is not verified on a real deployment yet; check with `curl -I` after the first deploy.
+  It is added in Phase 8 together with the deployment checklist. It is not verified on a real deployment yet; check with `curl -I` after the first deploy.
 
 - **Why the headers matter:** without cross-origin isolation, WASM runs single-threaded, about 6× slower (191 vs 28 ms). WebGPU does not need it.
 - **Size budget:** Vercel Hobby allows **100 MB of static files** per deployment (https://vercel.com/docs/limits). Expected `dist/`:
@@ -189,7 +189,7 @@ The project is published under **AGPL-3.0-only** (`LICENSE`, `package.json`).
    - the ONNX files keep Ultralytics' `author` / `license` metadata.
 3. **Copyright line:** "Copyright (C) 2026 Paul", followed by the standard AGPL notice, in the README (done).
 4. **Third-party notices:**
-   - onnxruntime-web is MIT-licensed and bundled into `dist/`. MIT requires keeping its copyright and license text with copies. Plan: generate `THIRD_PARTY_NOTICES` at build time in Phase 7.
+   - onnxruntime-web is MIT-licensed and bundled into `dist/`. MIT requires keeping its copyright and license text with copies. Plan: generate `THIRD_PARTY_NOTICES` at build time in Phase 8.
    - Other runtime dependencies: none so far.
 5. **Courtesy credit for COCO:** the weights are trained on COCO (annotations CC BY 4.0). Credit it in the README.
 6. **Never commit `test-vid/` or `test-img/`.** Their redistribution rights are unknown; they are gitignored.
@@ -203,9 +203,21 @@ The project is published under **AGPL-3.0-only** (`LICENSE`, `package.json`).
 4. **Class flicker:** associate across classes with an IoU penalty for a class mismatch (section 6).
 5. **Repository rename:** not answered; it stays "Video-analyzer" unless you say otherwise.
 
-## 12. Camera-motion compensation: planned as Phase 6b (decided 2026-10-03)
+## 12. Tracking quality: Phase 7 (decided 2026-10-03)
 
-Moving-camera clips over-count by about 1.5–2× from ID switches ([clip-counts.md](clip-counts.md)). The user decided to finish the original plan first (Phases 5–6) and add **Phase 6b, a measured spike**, before the Phase 7 performance pass.
+Moving-camera clips over-count by about 1.5–2× from ID switches ([clip-counts.md](clip-counts.md)). The user decided to finish the original plan first (Phases 5–6) and then run **Phase 7, a tracking quality check and overhaul**: camera motion, occlusion and every smaller helper, each measured. The brief's Phase 7 (performance pass + release) became Phase 8. Which of the options below to build is asked at the start of Phase 7.
+
+Candidate work, from the Phase 4 discussion (none built yet):
+
+- **Ground truth first:** hand-labeled keyframes with object identities on 2–3 clips, so ID switches can be measured, not only estimated.
+- **Camera-motion compensation** (below).
+- **Occlusion-aware lost handling:** a lost track whose predicted box lies behind another tracked box is treated as hidden: kept longer, re-associated with a looser gate.
+- **Observation-centric re-update after gaps** (OC-SORT idea): rebuild a re-found track's velocity from its observations instead of the drifted prediction (fast scale change, non-linear motion).
+- **Cheap appearance:** a color histogram per detection crop in the worker, used to re-match lost tracks (well under 1 ms per frame, estimated).
+- **Learned re-identification** (DeepSORT/BoT-SORT-style embedding model): strongest, but ~1–3 ms per crop (estimate), a second model file and license, size budget; realistic only for pre-analysis.
+- **Offline tracklet stitching** in pre-analysis (Phase 6 cache): link broken track pieces using time, position, motion and appearance. Merging pieces can lower a total, which is a counting-rule change the user must approve. The Phase 6 cache should keep track pieces, not only final counts, so this stays possible.
+
+### Camera-motion compensation
 
 - **What V2 had** (`old/`, reference only): OpenCV.js block matching (2×2 residual grid) and sparse LK optical flow on FAST corners (4×3 grid); translation only (affine and homography fits absorbed real object motion and stayed diagnostics); a parallax rejection rule. It helped a slow pan and failed on car and drone footage (confident in 63% of car frames, < 20% of late drone frames), at 50–70 ms per frame in Node. It compensated whole frames for frame differencing.
 - **Why V3 needs much less:** only the tracker's predicted boxes have to be shifted before association, and YOLO's boxes tell us where likely movers are, so they can be masked out of the estimate.
@@ -213,3 +225,26 @@ Moving-camera clips over-count by about 1.5–2× from ID switches ([clip-counts
 - **Cheaper fallback:** the median displacement of confirmed tracks (no image work); unreliable with few tracks or many movers.
 - **Evaluation:** extend the clip runner to record each frame's motion estimate so the offline replay can compare counts and suspected re-counts with and without it. Go/no-go on the numbers.
 - **Not solvable by a global model:** parallax (side-facing car camera, low drone over houses); per-track velocity and the buffered IoU already absorb part of it.
+
+## 13. Webcam (Phase 5)
+
+- **Config:** one object, `WEBCAM_CONFIG = {width: 1920, height: 1080, frameRate: 24}` in `src/input/webcam.ts`, sent as `ideal` constraints so a camera that cannot deliver it gives its closest mode instead of failing. The actual mode is shown under the camera controls and in Debug ("Camera mode (asked)").
+- **Capture: `requestVideoFrameCallback` + `new VideoFrame(video)`, the same path as video files.** `MediaStreamTrackProcessor` (available on the main thread in Chrome 154) was measured against it with the real worker and model, 10 s each, WebGPU:
+
+  | fake camera             | method            | inference fps | dropped | main-thread capture p50 / p95 | frame → result p50 / p95 |
+  | ----------------------- | ----------------- | ------------- | ------- | ----------------------------- | ------------------------ |
+  | clip, 1280×720 @ 24     | rVFC + VideoFrame | 23.9          | 0       | 0.04 / 0.07 ms                | 13.4 / 20.1 ms           |
+  | clip, 1280×720 @ 24     | MSTP              | 23.9          | 0       | 0.02 / 0.04 ms                | 12.9 / 20.6 ms           |
+  | pattern, 1920×1080 @ 20 | rVFC + VideoFrame | 20.0          | 0       | 0.04 / 0.14 ms                | 14.9 / 19.0 ms           |
+  | pattern, 1920×1080 @ 20 | MSTP              | 20.1          | 0       | 0.08 / 0.12 ms                | 15.2 / 19.4 ms           |
+
+  No measurable difference, so the brief's baseline stays. rVFC also gives the presented frame (the overlay is drawn for exactly that frame) and the camera's capture time; MSTP frames carried no metadata here.
+
+- **User decisions (2026-10-03):**
+  - **Pause:** the live picture can be paused; it freezes and shows "Current frame" counts for that picture, like video. Counting stops while paused.
+  - **Not mirrored:** the picture is shown as the camera sees it.
+  - **Stop keeps the totals** visible until Reset counts; starting the camera again continues counting; loading a file starts fresh.
+- **Pause and the tracker:** a camera stream's clock keeps running while the `<video>` is paused (measured: after a 1.5 s pause the next frame's time is ~1.57 s later). RealtimeVideo reports the gap at the first sampled frame after resuming and `Tracker.skip()` shifts all track times by it, so tracks continue as if there had been no pause. Measured on highway traffic (fake camera, 3 s pause): 6–8 of 18–20 confirmed tracks keep their IDs with the skip, 2 of 19–20 without it (the constant-velocity extrapolation over 3 s is worse than "where it was"). The rest are vehicles that really left during the pause.
+- **Camera switch** (device picker, shown when there are 2+ cameras): restarts the stream with an exact `deviceId`; totals kept, tracks dropped (new scene), the old camera released.
+- **Errors** (`cameraErrorMessage`): `NotAllowedError`/`SecurityError` → denied (allow it in the address bar); `NotFoundError` → no camera; `NotReadableError`/`AbortError` → in use by another application; `OverconstrainedError` → the picked camera is gone; no `navigator.mediaDevices` → needs HTTPS. A track that ends on its own (unplugged, revoked) → "disconnected" message, camera released, totals kept. `track.stop()` does not fire `ended`, so this only triggers for real disconnects.
+- **Release:** `WebcamSource.dispose()` stops every track and detaches the stream; it runs on Stop, camera switch, disconnect and when a file is loaded.

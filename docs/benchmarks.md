@@ -173,7 +173,7 @@ Annotated screenshots are regenerated with `node scripts/bench/runBrowserBench.t
   - ORT-Web 1.30 has `Tensor.fromGpuBuffer`, `preferredOutputLocation: "gpu-buffer"` and `enableGraphCapture`.
   - Moving preprocessing to the GPU could save at most the ~1.1 ms preprocess step here. The output must come back to the CPU for NMS anyway.
   - Graph capture needs static shapes, which conflicts with rect.
-  - Deferred to the Phase 7 performance pass.
+  - Deferred to the Phase 8 performance pass.
 - **Video frame capture cost** (VideoFrame → OffscreenCanvas at 1080p/4K): Phase 3.
 - **Cold model download and cache behavior:** Phase 2.
 
@@ -257,3 +257,15 @@ Measured 2026-10-03 with `npm run e2e:clips -- --build` (M4 Max, Chrome 154, hea
 - **The tracker costs ≤ 0.6 ms per frame** even on the busiest clip (moving_drone: ~40 tracks, 100+ raw detections), negligible next to inference. No reason to move it into the worker.
 - The 4K drone clips reach fewer inference fps on WebGPU here than in the 6 s Phase 3 runs (19.6–23 vs. 26–30): probably denser later sections and contention with 4K decode over a full playthrough (not investigated). 1080p and smaller stay at 25–30 fps.
 - Counts and the choice of tracker defaults: [clip-counts.md](clip-counts.md).
+
+## Phase 5: webcam
+
+Measured 2026-10-03 with `npm run e2e:webcam -- --build [--backend wasm]` (M4 Max, Chrome 154, headless, YOLOv8n, max 30 fps). No real camera: Chrome's fake camera played `test-vid/steady-2.mp4` as MJPEG; the camera delivered 1280×720 at 24 fps (asked 1920×1080 at 24). Values after ~6 s of live counting.
+
+| backend | inference fps | sampled frames dropped | latency capture → result | pre / infer / post ms |
+| ------- | ------------- | ---------------------- | ------------------------ | --------------------- |
+| WebGPU  | 23.1          | 0%                     | 12 ms                    | 2.3 / 9.0 / 0.6       |
+| WASM ×8 | 23.9          | 1%                     | 21 ms                    | 1.8 / 18.3 / 0.4      |
+
+- Both backends keep up with a 24 fps 720p camera. A 1080p camera at 30 fps on WASM would drop samples like the video files (~17–20 fps, Phase 3).
+- Capture method (rVFC vs. MediaStreamTrackProcessor): no measurable difference, see [decisions.md](decisions.md) §13.

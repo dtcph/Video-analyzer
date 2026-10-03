@@ -13,19 +13,19 @@ It targets Chrome/Chromium only. There is no backend, accounts, persistence, rec
 
 **Resuming? Read [docs/HANDOFF.md](docs/HANDOFF.md) first** (state, user decisions, environment, gotchas, the Phase 4 plan); the original requirements are in [docs/BRIEF.md](docs/BRIEF.md).
 
-Work proceeds in phases 0–7, plus 6b (camera-motion spike, added 2026-10-03). Each phase ends with a report, and the next one starts only after the user approves. Never make git commits: the user commits after review.
+Work proceeds in phases 0–8 (the user inserted Phase 7, tracking quality, on 2026-10-03; the brief's Phase 7 is now Phase 8). Each phase ends with a report, and the next one starts only after the user approves. Never make git commits: the user commits after review.
 
-| phase | content                                                                       | status                   |
-| ----- | ----------------------------------------------------------------------------- | ------------------------ |
-| 0     | archive old project, scaffold, port reusable modules                          | done                     |
-| 1     | spike: model export, ORT-Web on WebGPU/WASM, benchmarks, `docs/decisions.md`  | done                     |
-| 2     | image detection end-to-end                                                    | done                     |
-| 3     | realtime video                                                                | done                     |
-| 4     | tracking + total counts                                                       | done (awaiting approval) |
-| 5     | webcam                                                                        |                          |
-| 6     | pre-analysis mode                                                             |                          |
-| 6b    | camera-motion compensation spike (measured go/no-go, `docs/decisions.md` §12) |                          |
-| 7     | performance pass + release                                                    |                          |
+| phase | content                                                                          | status                   |
+| ----- | -------------------------------------------------------------------------------- | ------------------------ |
+| 0     | archive old project, scaffold, port reusable modules                             | done                     |
+| 1     | spike: model export, ORT-Web on WebGPU/WASM, benchmarks, `docs/decisions.md`     | done                     |
+| 2     | image detection end-to-end                                                       | done                     |
+| 3     | realtime video                                                                   | done                     |
+| 4     | tracking + total counts                                                          | done                     |
+| 5     | webcam                                                                           | done (awaiting approval) |
+| 6     | pre-analysis mode                                                                |                          |
+| 7     | tracking quality check + overhaul (camera motion, occlusion, `decisions.md` §12) |                          |
+| 8     | performance pass + release                                                       |                          |
 
 ## `old/` is an archive
 
@@ -50,6 +50,9 @@ npm run e2e [-- --build] [--headed]
                        # WASM + YOLOv8s, cache; --build tests the production bundle. Report: .cache/e2e/
 npm run e2e:video [-- --build] [--seconds 6]
                        # 3 clips × WebGPU/WASM × 15/30 fps: rates, drops, latency, box lag, pause/seek checks
+npm run e2e:webcam [-- --build] [--backend wasm]
+                       # Chrome's fake camera plays test-vid/steady-2 (MJPEG in .cache/e2e/): start, live counts,
+                       # pause/resume, picker + switch, stop releases, restart, disconnect, file load, all errors
 npm run e2e:counts [-- --build]   # Total section: grows while playing, pause adds nothing, seek keeps totals,
                        # disabled class "not counting", Reset counts
 npm run e2e:clips [-- --build] [--backend wasm] [--label name]
@@ -84,8 +87,11 @@ src/
   input/      Media sources (DOM allowed): InputSource interface; ImageSource (decode once to an
               ImageBitmap, capture = bitmap copy); VideoSource (VideoFrame capture; captureDisplayedFrame
               waits for a presented frame: Chrome can't capture a paused, never-presented frame);
-              VideoPlayer; FrameSampler (rVFC-driven, SampleRateLimiter caps by media time);
-              MediaFiles (pure upload validation, size limits), MediaTypes.
+              VideoPlayer (file or attachStream); videoCapture (shared VideoFrame capture helpers);
+              WebcamSource (getUserMedia; open() then show(); mode(), onEnded for unplug, dispose() stops
+              every track = camera released); webcam.ts (pure: WEBCAM_CONFIG 1920×1080@24 as `ideal`
+              constraints, cameraDevices, cameraErrorMessage); FrameSampler (rVFC-driven, SampleRateLimiter
+              caps by media time); MediaFiles (pure upload validation, size limits), MediaTypes.
   inference/  No DOM. inference.worker.ts (+ typed InferenceMessages, main-thread InferenceClient):
               plans backend+file (modelPlan), loads runtime (ortRuntime), fetches the model through
               modelCache (Cache API, SHA-256 verified, progress), warms up WebGPU, then detects:
@@ -109,10 +115,14 @@ src/
   ui/         Plain DOM panels: SettingsPanel (generated from the schema; Advanced/Debug <details>
               closed on every load; Reset to defaults), ClassGroupPanel (tri-state groups, expandable),
               CountsPanel (Total / Current frame / Reset), ModelStatusPanel (progress, notes, Retry),
-              DebugReadout, UploadPanel, PlaybackControls.
+              DebugReadout, UploadPanel, PlaybackControls, WebcamPanel (Start/Stop, Pause, device picker,
+              status + error lines).
   app/        App.ts: the only module that knows everything; builds the layout and wires services.
-              RealtimeVideo: sampling → gate → worker → hold; pause/seek/end handling via an epoch counter;
-              onSampledResult (forward-played frames only) feeds App's Tracker → TotalCounter; onSeek clears tracks.
+              RealtimeVideo (any RealtimeSource: file or live camera): sampling → gate → worker → hold;
+              pause/seek/end handling via an epoch counter; onSampledResult (forward-played frames only) feeds
+              App's Tracker → TotalCounter; onSeek clears tracks; onLiveResume → Tracker.skip(paused time).
+              Webcam: Stop releases the camera and keeps totals; restart/switch keeps totals, drops tracks;
+              a file load starts fresh.
               The stage element exposes data-draw-time / data-result-time / data-boxes for the e2e scripts, and
               with data-trace="1" dispatches a "trackerupdate" event per tracker update (clip runner).
   utils/      Pure helpers: geometry (top-left Box, IoU, contain/fit), format, math.
@@ -122,11 +132,12 @@ src/
 
 ### Known limitations (tracking and counting)
 
-- **ID switches re-count objects.** No camera-motion compensation yet (planned as Phase 6b, no OpenCV): panning or handheld footage over-counts about 2× (`moving_car`, `moving_handheld-2`). Occlusion plus fast scale change also breaks tracks (`steady.mp4`: 1 person → 3 tracks). A switch can also move an ID onto another object, which hides a count.
+- **ID switches re-count objects.** No camera-motion compensation yet (planned for Phase 7, no OpenCV): panning or handheld footage over-counts about 2× (`moving_car`, `moving_handheld-2`). Occlusion plus fast scale change also breaks tracks (`steady.mp4`: 1 person → 3 tracks). A switch can also move an ID onto another object, which hides a count.
 - **Re-entry is counted again:** an object that leaves (or is hidden) longer than the track-lost buffer (default 2 s) gets a new track.
 - **Scene cuts** start new tracks for everything (`steady.mp4` at 14.38 s).
 - **Seeking, rewinding or replaying counts again** (user decision); Reset counts before replaying. Pre-analysis (Phase 6) will give deterministic totals.
 - **A track's class is only as good as the model's majority over that track:** after an ID switch each piece votes on its own (the near-camera `steady.mp4` dog is mostly "horse" to YOLOv8n, so that piece counts as a horse). Per-class totals can shift while playing; the sum does not.
+- **Webcam pause** skips the paused time: objects still where they were keep their IDs; objects that moved a lot during the pause get new tracks (measured: ~30–40% of IDs kept on highway traffic after 3 s, ~10% without the skip).
 - **Small objects** (4K drone footage) are under-detected by YOLOv8n, so totals are low there; slower devices (lower inference rate) confirm fewer brief objects, since N counts frames.
 
 **Detection data flow:** the worker returns everything above the 0.05 score floor after class-aware NMS; the main thread applies the confidence threshold and class mask (`filterDetections`). That is provably equivalent to filtering before NMS (tested), so slider and class changes never need a new inference run. IoU / input size re-run detection; model size / backend reload the model.
@@ -139,7 +150,7 @@ Boxes use a top-left origin (`Box {x, y, width, height}`), in pixels or normaliz
 - Default input: 640 long side, **rect** letterbox (short side padded to a multiple of 32, 640x384 for 16:9). Matches Ultralytics' predictions exactly.
 - Runtime: onnxruntime-web **1.30.0 (pinned)**. Native WebGPU EP (`onnxruntime-web/webgpu`) when an adapter exists, else plain WASM (`onnxruntime-web/wasm`) with `clamp(cores/2, 1, 8)` threads. Threads need COOP/COEP.
 - Tracker (Phase 4, `docs/decisions.md` §6, evidence in `docs/clip-counts.md`): user decisions: associate across classes (IoU − 0.2 on a class mismatch); majority-vote class, counted once at confirmation, count follows the majority class; any seek clears tracks and keeps totals. Defaults chosen on the clips: confirmation 3 frames, lost buffer 2 s.
-- Hosting: Vercel (user deploys later). `vercel.json` sets COOP/COEP (Phase 7). Hobby limit 100 MB static files; `dist/` budget ~81 MB, so no extra model variants and no JSEP build in the app bundle.
+- Hosting: Vercel (user deploys later). `vercel.json` sets COOP/COEP (Phase 8). Hobby limit 100 MB static files; `dist/` budget ~81 MB, so no extra model variants and no JSEP build in the app bundle.
 - Benchmark candidates live in `.cache/models-bench/` (gitignored, outside `public/` so they never reach `dist/`).
 
 ## Stack

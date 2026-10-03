@@ -46,7 +46,7 @@ Recordings, the tracker input per frame and screenshots with track IDs every 3 s
 - **`steady-2.mp4`: plausible.** Fixed camera, objects approach steadily; IDs are stable in the screenshots. Riders are counted as "person" (COCO semantics) and motorcycles are often missed or merged with their rider, so 1–2 motorcycles is far below what the footage shows (model limitation).
 - **`moving_drone.mp4`, `moving_drone-2.mp4`: undercounted cars, plausible people.** Most IDs survive the slow drone motion (in the earlier run, compare `moving_drone__t9.png` and `__t12.png`: #1, #4, #5, #11, #15, #29, #96, #192, #199, #201, #223, #226, #306 persist). But YOLOv8n at 640 input finds only part of the small cars, near the threshold, so far fewer cars are counted than parked. "Accurate" (YOLOv8s) or a larger input size would help more than any tracker setting.
 
-**Summary:** fixed-camera footage and large objects count well; moving cameras over-count by about 1.5–2×, from ID switches (no camera-motion compensation; planned as Phase 6b); tiny objects are under-detected by the model. Totals are no longer inflated by flicker (see N = 1 below), but re-counting after ID switches remains, and a track's class can only be as good as the model's majority over that track.
+**Summary:** fixed-camera footage and large objects count well; moving cameras over-count by about 1.5–2×, from ID switches (no camera-motion compensation or occlusion handling yet; planned for Phase 7); tiny objects are under-detected by the model. Totals are no longer inflated by flicker (see N = 1 below), but re-counting after ID switches remains, and a track's class can only be as good as the model's majority over that track.
 
 ## 3. Choosing the defaults (evidence)
 

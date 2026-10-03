@@ -78,7 +78,49 @@ export class VideoPlayer {
         }
     }
 
-    /** Releases the current video (object URL included) and returns to "empty". */
+    /**
+     * Shows a live camera stream (not played yet; call play()). The stream is
+     * owned by the caller, which stops its tracks; unload() only detaches it.
+     */
+    async attachStream(stream: MediaStream, label: string): Promise<VideoMetadata> {
+        this.release();
+        this.setState("loading");
+        this.element.srcObject = stream;
+        try {
+            if (this.element.readyState < HTMLMediaElement.HAVE_METADATA) {
+                await new Promise<void>((resolve, reject) => {
+                    const cleanup = () => {
+                        this.element.removeEventListener("loadedmetadata", onLoaded);
+                        this.element.removeEventListener("error", onError);
+                    };
+                    const onLoaded = () => {
+                        cleanup();
+                        resolve();
+                    };
+                    const onError = () => {
+                        cleanup();
+                        reject(new Error("The camera stream could not be shown."));
+                    };
+                    this.element.addEventListener("loadedmetadata", onLoaded);
+                    this.element.addEventListener("error", onError);
+                });
+            }
+            this.metadata = {
+                fileName: label,
+                fileSizeBytes: 0,
+                durationSeconds: Infinity,
+                width: this.element.videoWidth,
+                height: this.element.videoHeight
+            };
+            this.setState("ready");
+            return this.metadata;
+        } catch (error) {
+            this.unload();
+            throw error;
+        }
+    }
+
+    /** Releases the current video (object URL or stream) and returns to "empty". */
     unload(): void {
         this.release();
         this.setState("empty");
@@ -115,6 +157,7 @@ export class VideoPlayer {
             this.objectUrl = null;
         }
         this.metadata = null;
+        this.element.srcObject = null;
         this.element.removeAttribute("src");
         this.element.load();
     }

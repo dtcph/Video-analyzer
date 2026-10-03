@@ -5,8 +5,19 @@ import { FrameGate } from "../inference/FrameGate";
 import type { FrameGateStats } from "../inference/FrameGate";
 import { FrameSampler } from "../input/FrameSampler";
 import type { CapturedFrame } from "../input/MediaTypes";
-import type { VideoSource } from "../input/VideoSource";
+import type { VideoPlayer } from "../input/VideoPlayer";
 import { RateMeter } from "../utils/RateMeter";
+
+/** A <video>-backed source: a file (VideoSource) or a live camera (WebcamSource). */
+export interface RealtimeSource {
+    readonly element: HTMLVideoElement;
+    readonly player: VideoPlayer;
+    /** Live sources keep their clock running while paused and cannot seek. */
+    readonly live: boolean;
+    currentTime(): number;
+    captureFrame(mediaTime: number): Promise<CapturedFrame>;
+    captureDisplayedFrame(): Promise<CapturedFrame>;
+}
 
 export interface RealtimeVideoDeps {
     /** Runs detection with the current settings; resolves null when no model is available (frame already closed). */
@@ -19,6 +30,13 @@ export interface RealtimeVideoDeps {
     onSampledResult(mediaTime: number, result: DetectResult): void;
     /** A seek started: the scene jumps, so tracks must be dropped. */
     onSeek(): void;
+    /**
+     * Live source only: playback resumed after a pause. Called once, just
+     * before the first sampled result after resuming, with the stream time at
+     * the pause and that result's time (the gap is the paused duration plus
+     * up to one sampling interval).
+     */
+    onLiveResume?(pausedAt: number, resumedAt: number): void;
     /** A new result was accepted or the shown result was cleared (seek). */
     onUpdate(): void;
     onError(message: string): void;
@@ -31,7 +49,8 @@ export interface RealtimeStats extends FrameGateStats {
 }
 
 /**
- * Realtime detection alongside native playback (Phase 3):
+ * Realtime detection alongside native playback (Phase 3) of a video file or,
+ * since Phase 5, a live camera:
  * - while playing, presented frames are sampled at most `maxInferenceFps`
  *   per second (FrameSampler) and sent to the worker only if it is idle
  *   (FrameGate): one frame in flight, the rest dropped and counted, so a
@@ -53,9 +72,12 @@ export class RealtimeVideo {
     private readonly disposers: (() => void)[] = [];
     private epoch = 0;
     private lastResult: DetectResult | null = null;
+    /** Live source: stream time when it was paused, until the first sampled result after resuming. */
+    private pausedAt: number | null = null;
+    private resumed = false;
 
     constructor(
-        private readonly source: VideoSource,
+        private readonly source: RealtimeSource,
         private readonly deps: RealtimeVideoDeps,
         maxInferenceFps: number
     ) {
@@ -67,9 +89,13 @@ export class RealtimeVideo {
         this.disposers.push(
             source.player.onStateChange((state) => {
                 if (state === "playing") {
+                    if (this.pausedAt !== null) this.resumed = true;
                     this.sampler.start();
                 } else {
                     this.sampler.stop();
+                    if (source.live && state === "paused" && this.pausedAt === null) {
+                        this.pausedAt = source.currentTime();
+                    }
                     if (state === "paused" || state === "ready") void this.detectDisplayedFrame();
                 }
             })
@@ -174,6 +200,11 @@ export class RealtimeVideo {
             this.lastResult = result;
             this.meter.record();
             this.hold.set({ mediaTime, detections: result.detections });
+            if (sampled && this.resumed && this.pausedAt !== null && mediaTime > this.pausedAt) {
+                this.deps.onLiveResume?.(this.pausedAt, mediaTime);
+                this.pausedAt = null;
+                this.resumed = false;
+            }
             if (sampled) this.deps.onSampledResult(mediaTime, result);
             this.deps.onUpdate();
         } catch (error) {

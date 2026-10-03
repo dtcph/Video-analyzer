@@ -10,11 +10,11 @@
 | 1     | model export, ORT-Web WebGPU/WASM spike, benchmarks, decisions | done, approved                                    | `e37a4a3` |
 | 2     | image detection end to end                                     | done, approved                                    | `93b5ab8` |
 | 3     | realtime video                                                 | done, **approved by the user 2026-10-02**, closed | `e768321` |
-| **4** | **tracking + total counts**                                    | **done 2026-10-03, awaiting the user's approval** |           |
-| 5     | webcam                                                         |                                                   |           |
+| 4     | tracking + total counts                                        | done, **approved by the user 2026-10-03**         |           |
+| **5** | **webcam**                                                     | **done 2026-10-03, awaiting approval**            |           |
 | 6     | pre-analysis mode                                              |                                                   |           |
-| 6b    | camera-motion compensation spike (added 2026-10-03)            | planned; go/no-go on measurement                  |           |
-| 7     | performance pass + release                                     |                                                   |           |
+| 7     | tracking quality check + overhaul (added 2026-10-03)           | planned (options asked at its start)              |           |
+| 8     | performance pass + release (the brief's Phase 7)               |                                                   |           |
 
 - The branch is `V3`. Remote: `github.com/dtcph/Video-analyzer` (public). The user makes every commit themselves.
 - At the moment of writing, the only uncommitted files are the ones created for this handoff: `docs/BRIEF.md`, `docs/HANDOFF.md`, `docs/CONTINUE-PROMPT.md` and a small `CLAUDE.md` edit. They are ready to commit.
@@ -47,13 +47,15 @@
 | topic                        | decision                                                                                                                                                         |
 | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Model files                  | Committed to git (`public/models/`, ~39.5 MiB, SHA-256 in `manifest.json`). Approved.                                                                            |
-| Hosting                      | **Vercel**, deployed by the user later. `vercel.json` with COOP/COEP does not exist yet (Phase 7). Hobby plan: 100 MB static files; the build is ~82 MB.         |
+| Hosting                      | **Vercel**, deployed by the user later. `vercel.json` with COOP/COEP does not exist yet (Phase 8). Hobby plan: 100 MB static files; the build is ~82 MB.         |
 | Copyright line               | "Copyright (C) 2026 Paul" (README, done). Repo is public (AGPL §13 source link is in the footer).                                                                |
 | Class flicker in the tracker | **Associate across classes, with an IoU penalty for a class mismatch.** (Strict per-class association would double-count a flickering object, e.g. dog ↔ horse.) |
 | Default max inference rate   | 30 fps (Phase 3, approved with the phase).                                                                                                                       |
 | Repo rename                  | Question left unanswered; stays "Video-analyzer".                                                                                                                |
 
 | Track class and counting moment (2026-10-03) | Majority-vote class (score-weighted); each track **counted once, at confirmation**; its count then **follows the majority class** (moved on change, sum unchanged, ties keep the current class). Revised the same day from "never moved". |
+| Webcam (2026-10-03) | Pause freezes the picture and shows "Current frame" (tracker skips the paused time); **not mirrored**; **Stop keeps totals** until Reset (restart continues counting, a file load starts fresh). |
+| Phase order (2026-10-03) | New **Phase 7: tracking quality check + overhaul** (camera motion, occlusion, every helper; options asked at its start). The brief's Phase 7 is now **Phase 8**. |
 | Seek / rewind / replay (2026-10-03) | **Any seek clears tracks and keeps totals.** Rewinding or replaying counts again (documented); Reset counts clears both. |
 
 Phase 4 results and the chosen tracker defaults (3 frames, 2 s): [clip-counts.md](clip-counts.md), [decisions.md](decisions.md) §6. Section 8 below is the plan as written before Phase 4.
@@ -181,6 +183,8 @@ Unit tests: **90 passing** at the end of Phase 3.
 - **FP16 conversion recipe** (`scripts/export_models.py`): clear `value_info` first, exclude the graph's own `Cast` nodes for dynamic exports, strip `date` metadata and `value_info` afterwards; this is what makes exports byte-reproducible. Ultralytics' native `half=True` gives FP16 inputs (rejected). In-graph NMS and INT8 were rejected by measurement.
 - **Seek landing:** a seek lands on the frame at or just before the target (up to one frame early); e2e checks tolerate that.
 - **happy-dom:** a checkbox in a disconnected DOM tree fires no `change` on `click()`; attach the panel to `document.body` in tests.
+- **Fake camera for tests:** `--use-fake-device-for-media-stream` (+ `=device-count=2`), `--use-fake-ui-for-media-stream` (auto-accept; without it headless Chrome denies, which tests the real denial path), `--use-file-for-fake-video-capture=<file.mjpeg>` (ignores device-count). `track.stop()` fires no `ended`; simulate unplugging by dispatching `ended`. A camera stream's clock runs on while the `<video>` is paused.
+- **In-page imports on the dev server** (`await import("/src/...")`) trigger Vite's dependency optimizer, which reloads the page once; load the page, wait, reload, then evaluate.
 - **Editing habit:** run Prettier before exact-string edits (Prettier reformats and breaks later `replace` anchors), or re-read the file first. A bare `cat > file` without a heredoc hangs the shell.
 - **e2e scripts must run from the repo root** (module resolution of `puppeteer-core`, `vite`). Headless Chrome with `--enable-unsafe-webgpu --use-angle=metal` gets real WebGPU on this Mac.
 - Vitest is v5 (`// @vitest-environment happy-dom` for DOM tests); ESLint 10; Vite 8.
@@ -190,8 +194,10 @@ Unit tests: **90 passing** at the end of Phase 3.
 - Weaker hardware, integrated GPUs, Windows/Android; GPUs without `shader-f16` (the FP32 yolov8n fallback and the "yolov8s → WASM" rule are a precaution, untested).
 - Headed (visible) Chrome smoothness; playback longer than ~10 s per run; very long videos / 500 MB files (size check only unit-tested).
 - The **Retry** button after a real model-load failure; running with WebGPU completely absent (only the forced-WASM setting was exercised).
-- WebGPU IO binding / GPU tensors: deferred to Phase 7 (saving ≤ ~1 ms here; graph capture conflicts with dynamic shapes).
-- Phase 7 to-dos: `vercel.json` (COOP/COEP + immutable cache for `/assets/*`; verify with `curl -I` after the first deploy), `THIRD_PARTY_NOTICES` (onnxruntime-web is MIT), full README, `docs/performance.md`, pre-commit checklist, final CLAUDE.md. Repo rename question (unanswered).
-- Phase 5 notes: webcam `InputSource` + device picker; 1080p/24 fps from one config object; `MediaStreamTrackProcessor` only if measurably better than rVFC; the realtime pipeline (`RealtimeVideo`, tracker, totals, Reset) should be reused as-is.
-- Phase 6b (added by the user 2026-10-03, after Phase 6, before Phase 7): camera-motion compensation spike, plan in [decisions.md](decisions.md) §12. Pure TypeScript, no OpenCV; worker estimates global translation (+ scale) on a ~160×90 downscale with detected boxes masked; `Tracker.update` shifts predicted boxes; record the estimates in the clip runner and compare by offline replay; go/no-go on the numbers. Old V2 estimators in `old/src/analysis/` are reference only.
+- WebGPU IO binding / GPU tensors: deferred to Phase 8 (saving ≤ ~1 ms here; graph capture conflicts with dynamic shapes).
+- Phase 8 (was the brief's Phase 7) to-dos: `vercel.json` (COOP/COEP + immutable cache for `/assets/*`; verify with `curl -I` after the first deploy), `THIRD_PARTY_NOTICES` (onnxruntime-web is MIT), full README, `docs/performance.md`, pre-commit checklist, final CLAUDE.md. Repo rename question (unanswered).
+- Phase 5 (done): see decisions.md §13. Not verified: a real camera (only Chrome's fake camera), real unplugging (simulated with an `ended` event), a real "no camera" or "camera busy" machine (injected errors), mobile devices.
+- Old Phase 5 notes: webcam `InputSource` + device picker; 1080p/24 fps from one config object; `MediaStreamTrackProcessor` only if measurably better than rVFC; the realtime pipeline (`RealtimeVideo`, tracker, totals, Reset) should be reused as-is.
+- Phase 7 (inserted by the user 2026-10-03): tracking quality check and overhaul: camera motion, occlusion and every smaller helper; candidate options in [decisions.md](decisions.md) §12, **ask the user which to build at the start of Phase 7**. Pure TypeScript, no OpenCV. Old V2 estimators in `old/src/analysis/` are reference only.
+- Phase 6 design note: the analysis cache should store track pieces (not only final counts) so offline tracklet stitching (a Phase 7 option) stays possible.
 - Phase 6 notes: Realtime / Pre-analysis selector; `AnalysisCache` interface with an in-memory implementation; playback locked until complete; decide (and tell the user) whether Stop discards or keeps a partial result (keep playback locked either way); "Settings changed, re-analyze" prompt; WebCodecs decoding evaluation; deterministic totals per cache. The class-filtering decision in decisions.md §5 (cache holds enabled-class detections only) was proposed there with an alternative (cache all classes), so mention it again.
