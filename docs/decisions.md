@@ -60,7 +60,7 @@ Evidence is in [benchmarks.md](benchmarks.md). All measurements come from one hi
 - **Advanced "Inference input size"** stays at 320 / 416 / 640 (long side). The UI notes that smaller sizes miss small objects: recall against 640 was 0.29 / 0.42 on the test clips.
 - **Slow devices should keep 640 and lower the inference rate** (degrade gracefully) rather than shrink the input. Phase 3 measures this on video.
 - **Letterbox implementation:** OffscreenCanvas 2D `drawImage` with gray 114 padding (`src/inference/preprocess.ts`). It costs 1.1 ms per frame here.
-- **GPU preprocessing / IO binding is deferred to Phase 8 (performance pass).** ORT 1.30 supports it, but the saving is at most ~1 ms per frame here, and graph capture would need static shapes.
+- **GPU preprocessing / IO binding: not done** (Phase 8, [performance.md](performance.md) §4). ORT 1.30 supports it, but the saving is at most ~1 ms per frame here, and graph capture would need static shapes.
 
 ## 4. NMS: in JavaScript, class-aware
 
@@ -114,7 +114,7 @@ Final design, built and measured in Phase 4. Evidence and per-clip numbers: [cli
 
 ## 7. Frame handling (Phases 3–5)
 
-- **One frame in flight** (`FrameGate`). Frames that arrive while busy are dropped and counted as dropped. Capture is rate-capped by Advanced "Max inference rate".
+- **One frame in flight, one waiting** (`FrameGate`). Since Phase 8, a frame that arrives while busy waits and is sent the moment the worker answers; a newer one replaces it (the replaced one counts as dropped). Before, every such frame was dropped, which cost WASM 12–41% of its frames ([performance.md](performance.md)). Capture is rate-capped by Advanced "Max inference rate".
 - **Sampling:** at the moment each frame is presented (`requestVideoFrameCallback`), capped by "Max inference rate". **Default 30** (Phase 3 measurement: 24–30 fps on WebGPU, ~18 on WASM, no dropped video frames on the M4 Max; slower devices drop more samples). Reversible: 15 gave 0% drops everywhere here.
 - **Smooth overlays:**
   - Phase 3 holds the latest result for up to 0.5 s of media time, so it lags about one sampling interval.
@@ -158,7 +158,7 @@ Final design, built and measured in Phase 4. Evidence and per-clip numbers: [cli
   }
   ```
 
-  It is added in Phase 8 together with the deployment checklist. It is not verified on a real deployment yet; check with `curl -I` after the first deploy.
+  Added in Phase 8 ([vercel.json](../vercel.json)), with the checks in [release-checklist.md](release-checklist.md). Not verified on a real deployment yet.
 
 - **Why the headers matter:** without cross-origin isolation, WASM runs single-threaded, about 6× slower (191 vs 28 ms). WebGPU does not need it.
 - **Size budget:** Vercel Hobby allows **100 MB of static files** per deployment (https://vercel.com/docs/limits). Expected `dist/`:
@@ -184,14 +184,14 @@ The project is published under **AGPL-3.0-only** (`LICENSE`, `package.json`).
 
 1. **Make the source available to every user of the website (AGPL §13).**
    - The repository (`github.com/dtcph/Video-analyzer`) is **public** (confirmed by the user).
-   - The app footer will link to it. Ideally the link points at the deployed commit; Vite can inject the commit hash at build time.
+   - The app footer links to the deployed commit (Phase 8): `vite.config.ts` injects `VERCEL_GIT_COMMIT_SHA`, else `git rev-parse HEAD`; without either it links to the repository.
 2. **Keep the license and notices:**
    - `LICENSE` in the repo;
    - an AGPL notice and the Ultralytics YOLOv8 credit with a source link in the README and the site footer;
    - the ONNX files keep Ultralytics' `author` / `license` metadata.
 3. **Copyright line:** "Copyright (C) 2026 Paul", followed by the standard AGPL notice, in the README (done).
 4. **Third-party notices:**
-   - onnxruntime-web is MIT-licensed and bundled into `dist/`. MIT requires keeping its copyright and license text with copies. Plan: generate `THIRD_PARTY_NOTICES` at build time in Phase 8.
+   - onnxruntime-web is MIT-licensed and bundled into `dist/`. MIT requires keeping its copyright and license text with copies. Done in Phase 8 as a static, hand-checked `public/THIRD_PARTY_NOTICES.txt` (onnxruntime-web MIT, mediabunny MPL-2.0 full texts), plus ONNX Runtime's own `ThirdPartyNotices.txt` of v1.30.0 for the components compiled into its WebAssembly, both linked from the footer. A unit test fails if a runtime dependency or its version is missing (dependencies are pinned exactly).
    - Other runtime dependencies: none so far.
 5. **Courtesy credit for COCO:** the weights are trained on COCO (annotations CC BY 4.0). Credit it in the README.
 6. **Never commit `test-vid/` or `test-img/`.** Their redistribution rights are unknown; they are gitignored.
@@ -288,3 +288,10 @@ Measured on two new full-clip recordings (`p7-webgpu`: YOLOv8n, `p7-webgpu-s`: Y
 - **Playback from the cache:** boxes are the tracks of the sample on screen (no prediction needed: every sample is cached); "Current frame" while paused uses that sample's detections, filtered with the settings the cache was tracked with; totals are the whole video's from frame 0. **Reset counts is hidden in pre-analysis**: the totals belong to the cache (Re-analyze replaces them).
 - **Modes per file:** realtime and pre-analysis have separate totals; switching to realtime stops a running analysis (kept as stopped) and keeps the cache while the file stays loaded. Loading another file discards it.
 - **Determinism:** the same file and settings give identical totals on every playback, after Stop + Resume and in a second uninterrupted analysis (tested on WebGPU). WebGPU (FP16) and WASM (FP32) totals differ slightly, as in Phase 3.
+
+## 15. Performance pass (Phase 8, 2026-10-06)
+
+- **User decisions:** profile, fix the top 2–3 bottlenecks; footer links the deployed commit; third-party notices as a static file + footer link; repository name kept; the user deploys and sends the URL for checking.
+- **Profile** ([performance.md](performance.md)): on the M4 Max, WebGPU already keeps up with 30 fps video (13 ms per frame); WASM dropped frames because Chrome presents them unevenly under CPU load; pre-analysis kept the worker 98–99% busy, one frame at a time; the main thread has no long tasks.
+- **Built:** (1) one waiting frame in `FrameGate` (WASM realtime 18–26 → 30 fps, 0% dropped); (2) the worker preprocesses each frame on arrival and pre-analysis keeps two frames in flight (WebGPU pre-analysis +17–22% with YOLOv8s, +21–44% with YOLOv8n; identical totals).
+- **Not built:** parallel download of model and runtime (same bandwidth), GPU preprocessing / IO binding, realtime overlap (only helps GPUs slower than the video; not measurable here).

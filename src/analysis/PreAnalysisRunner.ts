@@ -28,6 +28,9 @@ export interface VideoInfo {
     framesTotal: number;
 }
 
+/** Frames sent to the worker before the oldest result is awaited. */
+export const FRAMES_IN_FLIGHT = 2;
+
 /** Thrown when the file cannot be decoded with WebCodecs here; realtime mode still works for it. */
 export class UndecodableVideoError extends Error {
     constructor(detail: string) {
@@ -41,6 +44,9 @@ export class UndecodableVideoError extends Error {
  * MKV) and runs detection on every sample in order, without dropping: the
  * next frame is decoded while the current one is detected, and nothing is
  * skipped except by the sampling cap (max inference rate, as in realtime).
+ * Two frames are kept in flight, so the worker preprocesses the next one
+ * while the GPU runs the current one (Phase 8, docs/performance.md); results
+ * are stored in sample order.
  * No DOM. Measured ~100–110 samples/s on the M4 Max with WebGPU for 720p to
  * 4K clips (docs/decisions.md §14), ~25× faster than seeking a <video>.
  *
@@ -129,6 +135,16 @@ export class PreAnalysisRunner {
         };
 
         let outcome: "finished" | "stopped" = "finished";
+        const inFlight: { time: number; result: Promise<DetectResult | null> }[] = [];
+        const storeOldest = async () => {
+            const { time, result } = inFlight.shift() as (typeof inFlight)[number];
+            const detected = await result;
+            if (!detected) throw new Error("The model is not loaded.");
+            const analyzed = { time, detections: detected.detections };
+            cache.add(analyzed);
+            tracking.push(analyzed);
+            onProgress(progress(time));
+        };
         try {
             onProgress(progress(resumeAfter ?? 0));
             for await (const sample of sink.samples(resumeAfter ?? undefined)) {
@@ -146,17 +162,18 @@ export class PreAnalysisRunner {
                         : new VideoFrame(decoded, orientation(sample.rotation, sample.flip));
                 if (frame !== decoded) decoded.close();
                 sample.close();
-                const result = await this.detect(frame);
-                if (!result) throw new Error("The model is not loaded.");
-                const analyzed = { time, detections: result.detections };
-                cache.add(analyzed);
-                tracking.push(analyzed);
-                onProgress(progress(time));
+                const result = this.detect(frame);
+                result.catch(() => {}); // awaited in order by storeOldest; avoids an unhandled rejection meanwhile
+                inFlight.push({ time, result });
+                if (inFlight.length < FRAMES_IN_FLIGHT) continue;
+                await storeOldest();
                 if (this.stopRequested) {
                     outcome = "stopped";
                     break;
                 }
             }
+            // The frames still in flight are stored too, so the cache stays contiguous for Resume.
+            while (inFlight.length > 0) await storeOldest();
         } finally {
             this.elapsedMs += performance.now() - segmentStart;
             this.running = false;

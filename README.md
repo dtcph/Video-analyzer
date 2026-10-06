@@ -20,9 +20,11 @@ It is a study project in data visualization, and it runs entirely in your browse
 
 ## How it works
 
-The model runs on your own device, on the graphics card when the browser supports WebGPU and otherwise on the processor (WebAssembly). On a GPU the more accurate YOLOv8s model is used by default, on the processor the faster YOLOv8n. A tracker links the detections of consecutive frames into objects, so that a car crossing the screen is counted as one car, not once per frame.
+The model runs on your own device, on the graphics card when the browser supports WebGPU and otherwise on the processor (WebAssembly). On a GPU the more accurate YOLOv8s model is used by default, on the processor the faster YOLOv8n; the Model setting can choose either. A tracker links the detections of consecutive frames into objects, so that a car crossing the screen is counted as one car, not once per frame.
 
-Supported browsers: Chrome or another Chromium-based browser on a desktop computer.
+The first visit downloads up to about 50 MB (model and runtime); after that the model loads from the browser's cache in well under a second.
+
+Supported browsers: Chrome or another Chromium-based browser on a desktop computer. Tested on a fast Mac only; slower computers analyze fewer frames per second (the app adapts and never lags behind the video).
 
 ## Limitations
 
@@ -45,7 +47,11 @@ npm run preview   # serve the build locally
 npm run test      # unit tests
 ```
 
-The site needs two HTTP headers for multi-threaded WebAssembly (`Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp`); the development and preview servers send them, and a static host must send them too.
+The site needs two HTTP headers for multi-threaded WebAssembly (`Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp`); the development and preview servers send them, and a static host must send them too. Without them the processor path runs single-threaded, about 6× slower.
+
+## Deploy
+
+`npm run build` produces a static site in `dist/` (about 82 MB, mostly the models and the runtime). On **Vercel**: import the repository, keep the "Vite" preset (build `npm run build`, output `dist`), and deploy; [`vercel.json`](vercel.json) sets the two headers above and long-term caching for the hashed assets. Other static hosts work if they can send the headers (Netlify and Cloudflare Pages use a `_headers` file). Checks after deploying: [docs/release-checklist.md](docs/release-checklist.md).
 
 ## License and model credit
 
@@ -55,4 +61,6 @@ This program is free software: you can redistribute it and/or modify it under th
 
 Source code: https://github.com/dtcph/Video-analyzer
 
-Object detection uses **[Ultralytics YOLOv8](https://github.com/ultralytics/ultralytics)**, whose code and pretrained weights are licensed under AGPL-3.0. The model is pretrained on the [COCO dataset](https://cocodataset.org/) (annotations CC BY 4.0). The source of this website, including how the model files are produced ([scripts/export-model.md](scripts/export-model.md)), is published in this repository.
+Object detection uses **[Ultralytics YOLOv8](https://github.com/ultralytics/ultralytics)**, whose code and pretrained weights are licensed under AGPL-3.0. The model is pretrained on the [COCO dataset](https://cocodataset.org/) (annotations CC BY 4.0). The source of this website, including how the model files are produced ([scripts/export-model.md](scripts/export-model.md)), is published in this repository; the site's footer links to the exact commit it was built from.
+
+Bundled third-party software: ONNX Runtime Web (MIT) and Mediabunny (MPL-2.0). Their license texts are in [public/THIRD_PARTY_NOTICES.txt](public/THIRD_PARTY_NOTICES.txt), served with the site.

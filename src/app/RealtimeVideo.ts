@@ -52,9 +52,10 @@ export interface RealtimeStats extends FrameGateStats {
  * Realtime detection alongside native playback (Phase 3) of a video file or,
  * since Phase 5, a live camera:
  * - while playing, presented frames are sampled at most `maxInferenceFps`
- *   per second (FrameSampler) and sent to the worker only if it is idle
- *   (FrameGate): one frame in flight, the rest dropped and counted, so a
- *   slow device gets a lower inference rate, never a lagging backlog;
+ *   per second (FrameSampler) and sent to the worker when it is idle
+ *   (FrameGate): one frame in flight, the newest one waiting and sent as
+ *   soon as the worker answers, older ones dropped and counted, so a slow
+ *   device gets a lower inference rate, never a lagging backlog;
  * - each result is tagged with its frame's media time and held on screen
  *   (DetectionHold) until a newer one arrives;
  * - on pause, after a seek while paused, and at the end, the displayed frame
@@ -64,9 +65,15 @@ export interface RealtimeStats extends FrameGateStats {
  * - results of frames sampled while playing go to the tracker
  *   (`onSampledResult`); paused-frame results only feed the display.
  */
+interface SampledFrame {
+    frame: CapturedFrame;
+    mediaTime: number;
+    epoch: number;
+}
+
 export class RealtimeVideo {
     readonly hold = new DetectionHold(0.5);
-    private readonly gate = new FrameGate();
+    private readonly gate = new FrameGate<SampledFrame>((sampled) => sampled.frame.close());
     private readonly meter = new RateMeter(2000);
     private readonly sampler: FrameSampler;
     private readonly disposers: (() => void)[] = [];
@@ -102,6 +109,7 @@ export class RealtimeVideo {
         );
         const onSeeking = () => {
             this.epoch++;
+            this.gate.clearWaiting();
             this.hold.clear();
             this.deps.onSeek();
             this.deps.onUpdate();
@@ -148,11 +156,14 @@ export class RealtimeVideo {
     }
 
     private sample(mediaTime: number): void {
-        if (!this.gate.tryAcquire()) return; // dropped: the previous frame is still in flight
         const epoch = this.epoch;
+        // Captured even while a frame is in flight: it must be taken now, while it is the presented frame.
         void this.source.captureFrame(mediaTime).then(
-            (frame) => this.run(frame, mediaTime, epoch, true),
-            () => this.gate.release() // a missed sample, counted by the gate as accepted but never completed
+            (frame) => {
+                const sampled = { frame, mediaTime, epoch };
+                if (this.gate.offer(sampled)) void this.run(sampled, true);
+            },
+            () => {} // a missed sample (no presented frame yet): the next one is sampled as usual
         );
     }
 
@@ -165,7 +176,7 @@ export class RealtimeVideo {
         }
         if (!(await this.gate.acquireWhenIdle())) return;
         if (epoch !== this.epoch || !video.paused || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
-            this.gate.release();
+            this.finish();
             return;
         }
         const mediaTime = this.source.currentTime();
@@ -173,7 +184,7 @@ export class RealtimeVideo {
         try {
             frame = await this.source.captureDisplayedFrame();
         } catch (error) {
-            this.gate.release();
+            this.finish();
             this.deps.onError(
                 `Could not capture the video frame: ${error instanceof Error ? error.message : String(error)}`
             );
@@ -182,13 +193,13 @@ export class RealtimeVideo {
         if (epoch !== this.epoch) {
             // A seek happened while waiting for the frame.
             frame.close();
-            this.gate.release();
+            this.finish();
             return;
         }
-        await this.run(frame, mediaTime, epoch, false);
+        await this.run({ frame, mediaTime, epoch }, false);
     }
 
-    private async run(frame: CapturedFrame, mediaTime: number, epoch: number, sampled: boolean): Promise<void> {
+    private async run({ frame, mediaTime, epoch }: SampledFrame, sampled: boolean): Promise<void> {
         try {
             const result = await this.deps.detect(frame);
             if (!result || epoch !== this.epoch) return;
@@ -205,7 +216,13 @@ export class RealtimeVideo {
         } catch (error) {
             if (epoch === this.epoch) this.deps.onError(error instanceof Error ? error.message : String(error));
         } finally {
-            this.gate.release();
+            this.finish();
         }
+    }
+
+    /** Frees the worker slot; a frame sampled meanwhile is sent right away. */
+    private finish(): void {
+        const next = this.gate.release();
+        if (next) void this.run(next, true);
     }
 }

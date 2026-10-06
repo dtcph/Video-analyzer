@@ -1,27 +1,27 @@
 # Handoff: Object Counter V3
 
-**Updated 2026-10-06 at the close of Phase 7.** Read this first when resuming; start a session with [CONTINUE-PROMPT.md](CONTINUE-PROMPT.md).
+**Updated 2026-10-06 at the close of Phase 8 (awaiting approval).** Read this first when resuming; start a session with [CONTINUE-PROMPT.md](CONTINUE-PROMPT.md).
 
 ## 1. State
 
-| phase | content                                                        | status              |
-| ----- | -------------------------------------------------------------- | ------------------- |
-| 0–3   | scaffold, model/runtime spike, image detection, realtime video | approved, committed |
-| 4     | tracking + total counts                                        | approved 2026-10-03 |
-| 5     | webcam                                                         | approved 2026-10-03 |
-| 6     | pre-analysis mode                                              | approved 2026-10-03 |
-| 7     | tracking quality check (inserted by the user)                  | approved 2026-10-06 |
-| **8** | **performance pass + release** (the brief's Phase 7)           | **next**            |
+| phase | content                                                        | status                      |
+| ----- | -------------------------------------------------------------- | --------------------------- |
+| 0–3   | scaffold, model/runtime spike, image detection, realtime video | approved, committed         |
+| 4     | tracking + total counts                                        | approved 2026-10-03         |
+| 5     | webcam                                                         | approved 2026-10-03         |
+| 6     | pre-analysis mode                                              | approved 2026-10-03         |
+| 7     | tracking quality check (inserted by the user)                  | approved 2026-10-06         |
+| **8** | **performance pass + release** (the brief's Phase 7)           | **done, awaiting approval** |
 
-Branch `V3`, remote `github.com/dtcph/Video-analyzer` (public). The user commits; Phase 7 is in the working tree.
+Branch `V3`, remote `github.com/dtcph/Video-analyzer` (public). The user commits; Phase 8 is in the working tree. All phases of the brief are built; what remains is the user's deployment and its check (§5).
 
 ## 2. Read, in this order
 
 1. [CLAUDE.md](../CLAUDE.md): commands, layering, module map, known limitations.
 2. [BRIEF.md](BRIEF.md): original requirements, verbatim. Decisions below override it.
-3. [decisions.md](decisions.md): §9 hosting, §10 license first (Phase 8); §12 Phase 7 outcome.
-4. [clip-counts.md](clip-counts.md): per-clip totals, ground truth (§5).
-5. [benchmarks.md](benchmarks.md): all measurements.
+3. [decisions.md](decisions.md): §9 hosting, §10 license, §15 Phase 8.
+4. [performance.md](performance.md): the Phase 8 profile and fixes; [release-checklist.md](release-checklist.md): commit, deploy, checks.
+5. [clip-counts.md](clip-counts.md): per-clip totals, ground truth (§5); [benchmarks.md](benchmarks.md): all measurements.
 
 ## 3. Working agreements
 
@@ -46,12 +46,13 @@ Branch `V3`, remote `github.com/dtcph/Video-analyzer` (public). The user commits
 | Phase 7         | Camera motion, occlusion handling, per-class thresholds and contained-duplicate suppression measured and dropped.               |
 | Model default   | "Auto": YOLOv8s on WebGPU with `shader-f16`, YOLOv8n elsewhere (2026-10-06).                                                    |
 | Confidence      | Default 35% (2026-10-06, was 25%; best for both models against the user's counts).                                              |
+| Phase 8         | Fix top bottlenecks; footer links the deployed commit; static third-party notices; repo name kept; user deploys, sends the URL. |
 
-## 5. Phase 8: how to start
+## 5. After Phase 8: deployment check
 
-Brief's Phase 7 ([BRIEF.md](BRIEF.md)) plus the to-dos in §9: profile end to end and fix the top bottlenecks (`docs/performance.md`, before/after), finalize the settings UI, README (deployment, browsers, known limitations), `vercel.json`, `THIRD_PARTY_NOTICES`, final CLAUDE.md, pre-commit checklist. Ask open questions in one batch first.
+The user deploys on Vercel ([release-checklist.md](release-checklist.md) §2) and sends the URL. Then: run the checks of §3 there (headers, caching, compression of the `.wasm` and `.onnx`, footer links), open the site and run image, video (both modes) and webcam, and record the real first-load time in [performance.md](performance.md) §5. Nothing else is planned; new work starts with questions in one batch.
 
-Phase 7 tools stay available: `npm run e2e:clips -- --build [--model auto|n|s] --label x` records; `node scripts/e2e/sweepTracker.ts --label x --switches | --truth | --detail clip.mp4` replays. Recordings `p7-webgpu` (YOLOv8n), `p7-webgpu-s` (YOLOv8s) in `.cache/e2e/clip-counts/`.
+Tools: `node scripts/e2e/profileFlow.ts --build [--pre | --load]` profiles; `npm run e2e:clips -- --build [--model auto|n|s] [--backend wasm] --label x` records; `node scripts/e2e/sweepTracker.ts --label x --switches | --truth | --detail clip.mp4` replays. Recordings in `.cache/e2e/clip-counts/`: `p7-webgpu` (YOLOv8n), `p7-webgpu-s` (YOLOv8s), `p8-wasm`.
 
 ## 6. Environment
 
@@ -62,10 +63,10 @@ Phase 7 tools stay available: `npm run e2e:clips -- --build [--model auto|n|s] -
 
 ## 7. Regression baselines
 
-- Unit tests: 165. On the build: `e2e` (image counts below), `e2e:video` (0 stale draws, paused frame exact, 0 dropped video frames), `e2e:counts` 6/6, `e2e:webcam` 15/15, `e2e:pre` 15/15.
+- Unit tests: 170. On the build: `e2e` (image counts below), `e2e:video` (0 stale draws, paused frame exact, 0 dropped video frames), `e2e:counts` 6/6, `e2e:webcam` and `e2e:pre` all PASS, no console errors.
 - Image counts at 35% (default since 2026-10-06): Auto on WebGPU (YOLOv8s) moving_car 3 cars, 2 buses, 2 trucks; steady-2 16 cars, 4 trucks, 1 bus, 1 person; steady 1 dog, 1 person. Fast or WASM (YOLOv8n): 4 cars, 1 bus, 1 truck; 16 cars, 2 people, 1 bus, 1 truck; 1 horse, 1 person.
 - Image counts at 25% (before 2026-10-06), Fast / Accurate: moving_car 4 cars, 1 bus, 1 truck / 4 cars, 2 buses, 2 trucks; steady-2 17 cars, 2 people, 1 bus, 1 truck / 18 cars, 4 trucks, 1 bus, 1 motorcycle, 1 person; steady 1 horse, 1 person / 1 dog, 1 person.
-- Realtime WebGPU at the 30 fps cap: 22.7–24.6 inference fps with Auto (YOLOv8s), 25–30 with Fast; WASM ~17–20. Pre-analysis: 2.1× realtime with Auto (WebGPU), 3.4–3.8× with Fast, 1.4–1.8× (WASM).
+- Realtime at the 30 fps cap (Phase 8): 30 inference fps, 0% dropped on WebGPU (Auto and Fast) and WASM. Pre-analysis: Auto 3.4–4.5× realtime, Fast 4.2–5.3×, WASM 1.5–1.9×. First visit at 50 Mbit/s 8.6 s, reload 0.37 s.
 
 ## 8. Gotchas
 
@@ -84,4 +85,4 @@ Phase 7 tools stay available: `npm run e2e:clips -- --build [--model auto|n|s] -
 
 - Real camera, real unplugging, mobile; weaker or integrated GPUs, no `shader-f16`, Windows/Android; headed Chrome; long or 500 MB files; WebM/MKV, HEVC, AV1; WASM determinism; Retry after a real model-load failure.
 - Not measured in Phase 7: input size > 640 (needs a schema option), OC-SORT re-update for fast scale change (`steady.mp4`).
-- Phase 8 to-dos: `vercel.json` (COOP/COEP + immutable `/assets/*`, check with `curl -I`), `THIRD_PARTY_NOTICES` (onnxruntime-web MIT, mediabunny MPL-2.0), README, `docs/performance.md`, pre-commit checklist, final CLAUDE.md, WebGPU IO binding (≤ 1 ms). Repo rename: unanswered.
+- The real deployment (headers, compression, first load over a real network) until the user sends the URL. Repo name kept (2026-10-06).

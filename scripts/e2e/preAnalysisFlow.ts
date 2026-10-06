@@ -1,7 +1,7 @@
 /**
  * End-to-end check of pre-analysis (Phase 6) in the installed Chrome.
  *
- *   node scripts/e2e/preAnalysisFlow.ts [--build] [--headed] [--backend wasm] [--speed]
+ *   node scripts/e2e/preAnalysisFlow.ts [--build] [--headed] [--backend wasm] [--model auto|n|s] [--speed]
  *
  * Flow on steady-2.mp4: realtime is the default; Pre-analysis locks playback;
  * progress and ETA advance; Stop keeps a partial (locked) result and Resume
@@ -22,6 +22,7 @@ import { collectErrors, launchChrome, serveApp, setRange, setSelect, uploadFile,
 const argv = process.argv.slice(2);
 const args = new Set(argv);
 const BACKEND = argv.includes("--backend") ? argv[argv.indexOf("--backend") + 1] : "auto";
+const MODEL = argv.includes("--model") ? argv[argv.indexOf("--model") + 1] : "auto";
 const PORT = 5198;
 const OUT = ".cache/e2e";
 const ROTATED = resolve(OUT, "steady-portrait.mp4");
@@ -190,6 +191,7 @@ try {
     await page.setViewport({ width: 1400, height: 1100 });
     await page.goto(server.url, { waitUntil: "load" });
     if (BACKEND === "wasm") await setSelect(page, "backend", 2);
+    if (MODEL !== "auto") await setSelect(page, "modelSize", MODEL === "n" ? 1 : 2); // options: auto, n, s
     measured.model = await waitForModel(page);
 
     if (args.has("--speed")) {

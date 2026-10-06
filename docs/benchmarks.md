@@ -298,3 +298,12 @@ M4 Max, Chrome 154, production build, WebGPU unless noted. Clip evidence: [clip-
 - **"Auto" = YOLOv8s on WebGPU (new default), `e2e:video`:** at the 30 fps cap 22.7–24.6 inference fps, 12–19% of samples dropped (YOLOv8n: 25–30 fps); inference 12.5–20.5 ms; at 15 fps no drops; 0 dropped video frames; WASM (YOLOv8n) unchanged at 17.6–19.7 fps.
 - **Full clips (`e2e:clips`), YOLOv8s:** 17.9–21.7 inference fps, 22–42% of samples dropped.
 - **Pre-analysis, YOLOv8s on WebGPU:** 2.1× realtime on `steady-2` (YOLOv8n: 3.4–3.8×).
+
+## Phase 8: performance pass (2026-10-06)
+
+Full profile, changes and before/after tables: [performance.md](performance.md). In short (M4 Max, production build):
+
+- Realtime at the 30 fps cap: Auto (YOLOv8s) and Fast on WebGPU 30 fps, 0% dropped; WASM (YOLOv8n) 30 fps, 0% dropped (was 17–26 fps, 12–41% dropped).
+- Pre-analysis: Auto 3.4–4.5× realtime (was 2.9–3.7×), Fast 4.2–5.3× (was 3.1–4.0×), WASM 1.5–1.9× (unchanged).
+- First visit with an empty cache at 50 Mbit/s: model ready after 8.6 s (download-bound); a reload 0.37 s.
+- Phase 7's 22.7–24.6 fps for YOLOv8s on WebGPU did not reproduce: the same `e2e:video` run gives 30 fps.

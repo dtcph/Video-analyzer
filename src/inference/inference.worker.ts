@@ -15,12 +15,16 @@ import { planModel, wasmFallback } from "./modelPlan";
 import type { LoadedRuntime } from "./ortRuntime";
 import { loadRuntime } from "./ortRuntime";
 import { decodeYoloV8, nonMaxSuppression, toSourceDetections } from "./postprocess";
+import type { LetterboxTransform } from "./preprocess";
 import { LETTERBOX_FILL, letterboxTransform, rgbaToPlanarRgb } from "./preprocess";
 
 /**
  * The app's inference worker: loads the onnxruntime-web build and model the
  * plan picks (modelPlan.ts), then turns transferred frames into detections.
- * No DOM. Requests are processed strictly in order.
+ * No DOM. Requests are processed strictly in order; a frame's preprocessing
+ * runs as soon as it arrives, so on WebGPU it overlaps the previous frame's
+ * inference (the GPU runs while this thread awaits it; Phase 8,
+ * docs/performance.md).
  */
 
 interface Loaded {
@@ -41,7 +45,15 @@ const runtimes = new Map<string, LoadedRuntime>();
  */
 type CanvasKind = "gpu" | "cpu";
 const canvases = new Map<CanvasKind, { canvas: OffscreenCanvas; ctx: OffscreenCanvasRenderingContext2D }>();
-let inputBuffer: Float32Array | null = null;
+/** Input buffers not in use; one per frame between preprocessing and the end of its inference, reused. */
+const freeBuffers: Float32Array[] = [];
+
+/** A frame letterboxed into a model input, waiting for (or in) inference. */
+interface Prepared {
+    data: Float32Array;
+    transform: LetterboxTransform;
+    preprocessMs: number;
+}
 
 function preprocessCanvas(kind: CanvasKind, width: number, height: number): OffscreenCanvasRenderingContext2D {
     const existing = canvases.get(kind);
@@ -168,12 +180,10 @@ async function load(request: LoadModelRequest): Promise<void> {
     post({ type: "loaded", requestId: request.requestId, info: loaded.info });
 }
 
-async function detect(request: DetectRequest): Promise<void> {
+/** Letterboxes the frame into a planar float32 input and closes it. */
+function preprocess(request: DetectRequest): Prepared {
     const { frame } = request;
     try {
-        if (!loaded) throw new Error("No model loaded.");
-        const { session, runtime } = loaded;
-
         const t0 = performance.now();
         const width = "displayWidth" in frame ? frame.displayWidth : frame.width;
         const height = "displayHeight" in frame ? frame.displayHeight : frame.height;
@@ -184,14 +194,27 @@ async function detect(request: DetectRequest): Promise<void> {
             inputWidth,
             inputHeight
         );
-        if (inputBuffer?.length !== 3 * inputWidth * inputHeight)
-            inputBuffer = new Float32Array(3 * inputWidth * inputHeight);
+        let data = freeBuffers.pop();
+        if (data?.length !== 3 * inputWidth * inputHeight) data = new Float32Array(3 * inputWidth * inputHeight);
         ctx.fillStyle = LETTERBOX_FILL;
         ctx.fillRect(0, 0, inputWidth, inputHeight);
         ctx.drawImage(frame, transform.offsetX, transform.offsetY, transform.drawWidth, transform.drawHeight);
         frame.close();
-        rgbaToPlanarRgb(ctx.getImageData(0, 0, inputWidth, inputHeight).data, inputBuffer);
-        const input = new runtime.ort.Tensor("float32", inputBuffer, [1, 3, inputHeight, inputWidth]);
+        rgbaToPlanarRgb(ctx.getImageData(0, 0, inputWidth, inputHeight).data, data);
+        return { data, transform, preprocessMs: performance.now() - t0 };
+    } finally {
+        // Idempotent: also covers the error paths before drawImage.
+        frame.close();
+    }
+}
+
+async function detect(request: DetectRequest, prepared: Prepared): Promise<void> {
+    try {
+        if (!loaded) throw new Error("No model loaded.");
+        const { session, runtime } = loaded;
+        const { transform } = prepared;
+        const { inputWidth, inputHeight } = transform;
+        const input = new runtime.ort.Tensor("float32", prepared.data, [1, 3, inputHeight, inputWidth]);
 
         const t1 = performance.now();
         const outputs = await session.run({ [session.inputNames[0]]: input });
@@ -211,25 +234,32 @@ async function detect(request: DetectRequest): Promise<void> {
             type: "detections",
             requestId: request.requestId,
             detections,
-            timings: { preprocessMs: t1 - t0, inferenceMs: t2 - t1, postprocessMs: t3 - t2 },
+            timings: { preprocessMs: prepared.preprocessMs, inferenceMs: t2 - t1, postprocessMs: t3 - t2 },
             inputWidth,
             inputHeight
         });
     } finally {
-        // Idempotent: also covers the error paths before drawImage.
-        frame.close();
+        freeBuffers.push(prepared.data);
     }
+}
+
+function fail(requestId: number, error: unknown): void {
+    post({ type: "error", requestId, message: error instanceof Error ? error.message : String(error) });
 }
 
 self.onmessage = (event: MessageEvent<InferenceRequest>) => {
     const request = event.data;
-    queue = queue.then(() =>
-        (request.type === "load" ? load(request) : detect(request)).catch((error: unknown) =>
-            post({
-                type: "error",
-                requestId: request.requestId,
-                message: error instanceof Error ? error.message : String(error)
-            })
-        )
-    );
+    if (request.type === "load") {
+        queue = queue.then(() => load(request).catch((error: unknown) => fail(request.requestId, error)));
+        return;
+    }
+    // Preprocessed on arrival (it does not depend on the model); inference waits its turn.
+    let prepared: Prepared;
+    try {
+        prepared = preprocess(request);
+    } catch (error) {
+        queue = queue.then(() => fail(request.requestId, error));
+        return;
+    }
+    queue = queue.then(() => detect(request, prepared).catch((error: unknown) => fail(request.requestId, error)));
 };

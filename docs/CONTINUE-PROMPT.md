@@ -1,13 +1,13 @@
 # Prompt to continue the project
 
-Paste everything inside the box below into a new Claude Code session opened in this repository.
+Paste everything inside the box below into a new Claude Code session opened in this repository, with the deployment URL filled in.
 
 ```text
-Continue the Object Counter V3 project (this repository, branch V3). Phases 0–7 are done and approved. Start Phase 8: performance pass and release.
+Continue the Object Counter V3 project (this repository, branch V3). Phases 0–8 are done and approved. The site is deployed at <URL>.
 
-First read docs/HANDOFF.md, then the files it lists (CLAUDE.md, docs/BRIEF.md "Phase 7: Performance pass and release", docs/decisions.md §9–10, docs/benchmarks.md).
+First read docs/HANDOFF.md, then docs/release-checklist.md and docs/performance.md §5.
 
-Rules, unchanged: stop at the end of the phase and give the 5-part phase report. Never make git commits. Never touch old/. Never add OpenCV. tsc, lint, tests and prettier must pass after every change set. Do not change counting rules silently. In a discussion turn, do not edit code.
+Task: check the deployment (release-checklist.md §3: headers, caching, compression, footer links, image / video in both modes / webcam end to end) and record the results, including the real first-load time, in docs/performance.md.
 
-Before building anything, ask me open questions in ONE batch, recommended option first. Measure every performance change before and after.
+Rules, unchanged: stop at the end and give the 5-part report. Never make git commits. Never touch old/. Never add OpenCV. tsc, lint, tests and prettier must pass after every change set. Do not change counting rules silently. In a discussion turn, do not edit code. Ask open questions in ONE batch, recommended option first.
 ```

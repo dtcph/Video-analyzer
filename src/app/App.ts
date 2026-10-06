@@ -40,8 +40,9 @@ import { DEFAULT_TUNING, Tracker } from "../tracking/Tracker";
 import type { Size } from "../utils/geometry";
 import { RealtimeVideo } from "./RealtimeVideo";
 
-/** AGPL §13: every user of the site must be offered the source. */
+/** AGPL §13: every user of the site must be offered the source, ideally of the deployed commit (set by vite.config.ts). */
 const SOURCE_URL = "https://github.com/dtcph/Video-analyzer";
+const SOURCE_COMMIT_URL = __SOURCE_COMMIT__ ? `${SOURCE_URL}/tree/${__SOURCE_COMMIT__}` : SOURCE_URL;
 
 /** The worker returns detections down to the lowest selectable threshold; the user's threshold is applied here. */
 const SCORE_FLOOR = MIN_CONFIDENCE;
@@ -180,7 +181,9 @@ export class App {
             Runs entirely in your browser. Detection by
             <a href="https://github.com/ultralytics/ultralytics" rel="noopener">Ultralytics YOLOv8</a> (AGPL-3.0).
             Free software under the <a href="https://www.gnu.org/licenses/agpl-3.0.html" rel="noopener">GNU AGPL-3.0</a>:
-            <a href="${SOURCE_URL}" rel="noopener">source code</a>.
+            <a href="${SOURCE_COMMIT_URL}" rel="noopener">source code</a>${
+                __SOURCE_COMMIT__ ? ` (${__SOURCE_COMMIT__.slice(0, 7)})` : ""
+            }. <a href="THIRD_PARTY_NOTICES.txt" rel="noopener">Third-party notices</a>.
         `;
 
         this.root.replaceChildren(header, layout, footer);
