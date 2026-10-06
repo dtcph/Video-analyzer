@@ -7,7 +7,7 @@
 ## Rules
 
 - Phase by phase; stop with the 5-part report and wait for approval. **Never make git commits** (the user commits).
-- `old/` (previous project, gitignored): **never edit, import, delete or commit**; reference only. **Never add OpenCV.**
+- **Never add OpenCV.**
 - Gate after every change set: `npx tsc --noEmit && npm run lint && npm run test && npx prettier --check .`
 - Don't change counting rules silently. New libraries only with a one-sentence reason; ask before any UI framework; verify APIs against the installed version.
 - License AGPL-3.0 (Ultralytics YOLOv8); keep the notice with models and code. A new runtime dependency goes into `public/THIRD_PARTY_NOTICES.txt` (a test checks it). `test-vid/`, `test-img/` are local media: never commit.

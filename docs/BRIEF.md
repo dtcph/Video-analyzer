@@ -1,16 +1,12 @@
-# Object Counter V3: the original brief (verbatim)
+# Object Counter: the original brief
 
-Saved from the user's first V3 message so it survives across sessions. This is the **requirements source of truth**. Where a later user decision changed something, it is recorded in [HANDOFF.md](HANDOFF.md) (section "User decisions") and [decisions.md](decisions.md); those override this text.
-
-Notes on status, 2026-10-02: Phases 0–3 are done and committed. The brief's "Phase 0" step list mentions `old/` handling; that is complete.
+Saved from the user's first message so it survives across sessions (the archiving step of the former project is removed). This is the **requirements source of truth**. Where a later user decision changed something, it is recorded in [HANDOFF.md](HANDOFF.md) (section "User decisions") and [decisions.md](decisions.md); those override this text.
 
 ---
 
 ## Goal
 
-Build a new project, **Object Counter**, on top of YOLOv8, replacing the old motion/blob analyzer in this repository. The old code is archived into an ignored `old/` folder (Phase 0) and used only as a source to port reusable pieces from. The new commit history contains only what V3 needs.
-
-Note: until Phase 0 replaces it, the `CLAUDE.md` at the repository root describes the OLD project. Treat it as reference only.
+Build a new project, **Object Counter**, on top of YOLOv8.
 
 The result is a public, open-source website (for study research), client-side only (Chrome/Chromium, no backend), where the user can:
 
@@ -98,23 +94,14 @@ Default on first load: People, Animals, Transportation.
 - Show model loading progress and clear errors: no WebGPU, model failed to load, camera denied, unsupported or oversized file.
 - One typed settings schema is the single source of truth (label, range, default, group main/advanced/debug); generate the UI from it.
 
-## Phase 0: Archive the old project and scaffold the new one
+## Phase 0: Scaffold
 
-**Input:** the current repository (the old motion/blob analyzer), `test-vid/`.
-**Task, in this order:**
+**Task:**
 
-1. **Safety check.** Run `git status`. If there are uncommitted changes, stop and tell me before touching anything.
-2. **Archive.** Create `old/` and move the old project into it with plain filesystem moves (not `git mv`): everything at the repository root EXCEPT this keep-list: `.git/`, `.gitignore`, `.claude/` (if present), `test-vid/`, `node_modules/`, `dist/`, `old/`, and any prompt file I placed here for you. This includes `src/`, `scripts/`, `index.html`, `vite.config.ts`, `tsconfig*.json`, `package.json`, `package-lock.json`, `CLAUDE.md`, `README*`, lint/format configs and other dotfiles. After the move, delete `node_modules/` and `dist/` (they are regenerable); run a fresh install in step 5.
-3. **Ignore it.** Add `old/`, `node_modules/`, `dist/`, `test-vid/` and `test-img/` to `.gitignore`. Run `git ls-files test-vid`: if clips are currently tracked, do NOT untrack them; report it to me and let me decide (the clips are large and may not be redistributable). Verify with `git status` that `old/` and `test-vid/` do not appear as untracked files and that the old root files show up only as deletions.
-4. **Audit.** Read `old/CLAUDE.md` and the old source for reference only. Write `docs/reuse-audit.md` listing, per module, whether it is reused (video player, upload panel, layered canvas overlay renderer, worker client pattern, track manager concept, settings/UI patterns), adapted, or dropped (everything specific to motion/blob detection, OpenCV, camera-motion estimation). One line of reasoning per item.
-5. **Scaffold.** Create the new project at the repository root: `package.json` (name `object-counter` unless I say otherwise), Vite + TypeScript, Vitest, ESLint + Prettier, `tsconfig.json`, `vite.config.ts` (including COOP/COEP dev headers), `index.html`, a source folder layout that matches the layering rule (inference / tracking / counting / rendering / ui / app / utils), `LICENSE` (AGPL-3.0), a short README stub, and scripts `dev`, `build`, `preview`, `test`, `lint`.
-   - Configure `tsc`, ESLint, Prettier and Vitest to **exclude `old/`**, so archived code is never type-checked, linted, formatted, or run as tests.
-   - `npm run test` must exit successfully: include at least one real unit test (for example for a ported pure utility) or configure Vitest to pass with no tests.
-6. **Port.** Copy the modules marked reused/adapted from `old/` into the new layout and adapt them, removing every blob/motion/OpenCV dependency and dead code. Do not add OpenCV to the new project.
-7. **Fresh CLAUDE.md.** Write a new `CLAUDE.md` for V3: concept, commands, layering rule, stack, license, and the instruction that `old/` is an ignored archive that must never be edited, imported from, or committed.
+1. **Scaffold.** `package.json` (name `object-counter`), Vite + TypeScript, Vitest, ESLint + Prettier, `tsconfig.json`, `vite.config.ts` (including COOP/COEP dev headers), `index.html`, a source layout matching the layering rule (inference / tracking / counting / rendering / ui / app / utils), `LICENSE` (AGPL-3.0), a short README stub, and scripts `dev`, `build`, `preview`, `test`, `lint`. Add `node_modules/`, `dist/`, `test-vid/` and `test-img/` to `.gitignore`; the clips are large and may not be redistributable. Do not add OpenCV.
+2. **CLAUDE.md** for V3: concept, commands, layering rule, stack, license.
 
-**Output:** `old/` archive, updated `.gitignore`, `docs/reuse-audit.md`, the new scaffold with ported modules, fresh `CLAUDE.md`.
-**Done when:** `npm install` works on a clean tree; `npm run dev`, `npm run build`, `npx tsc --noEmit`, `npm run lint` and `npm run test` all pass; `git status` shows only the new/changed V3 files plus deletions of the old root files (nothing from `old/` or `test-vid/`); nothing under `src/` imports from `old/`; and I have reviewed the audit.
+**Done when:** `npm install` works on a clean tree; `npm run dev`, `npm run build`, `npx tsc --noEmit`, `npm run lint` and `npm run test` all pass (at least one real unit test).
 
 ## Phase 1: Spike and decisions
 
@@ -179,14 +166,13 @@ Default on first load: People, Animals, Transportation.
 - Finalize the settings UI (main / Advanced closed on load / Debug / Reset).
 - Write the README: what it does, how to run, supported browsers, backend behavior, model and AGPL-3.0 notice, deployment steps including the COOP/COEP note, known limitations.
 - Update `CLAUDE.md` so it matches the final architecture.
-- Give me a pre-commit checklist: what should and should not be in the first commit (confirm `old/`, `test-vid/` and `test-img/` are ignored, model files handled per `decisions.md`, license file present).
+- Give me a pre-commit checklist: what should and should not be in the first commit (confirm `test-vid/` and `test-img/` are ignored, model files handled per `decisions.md`, license file present).
   **Output:** README, `LICENSE`, `CLAUDE.md`, `docs/performance.md`, pre-commit checklist.
   **Done when:** `npm run build` produces a deployable static site, all checks pass, and image, video (both processing modes) and webcam work end to end.
 
 ## Constraints
 
 - No backend, accounts, video export, recording, or persistence of results.
-- Never edit, import from, delete, or commit anything in `old/`. I will delete it myself later.
 - Never make git commits.
 - Do not ship model files or code without the license notice.
 - Do not start a phase before I approve the previous one.

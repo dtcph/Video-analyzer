@@ -222,8 +222,7 @@ Candidate work, from the Phase 4 discussion (none built yet):
 
 ### Camera-motion compensation
 
-- **What V2 had** (`old/`, reference only): OpenCV.js block matching (2×2 residual grid) and sparse LK optical flow on FAST corners (4×3 grid); translation only (affine and homography fits absorbed real object motion and stayed diagnostics); a parallax rejection rule. It helped a slow pan and failed on car and drone footage (confident in 63% of car frames, < 20% of late drone frames), at 50–70 ms per frame in Node. It compensated whole frames for frame differencing.
-- **Why V3 needs much less:** only the tracker's predicted boxes have to be shifted before association, and YOLO's boxes tell us where likely movers are, so they can be masked out of the estimate.
+- **Why little is needed:** only the tracker's predicted boxes have to be shifted before association, and YOLO's boxes tell us where likely movers are, so they can be masked out of the estimate.
 - **Proposed approach** (pure TypeScript, no OpenCV): in the worker, reuse the letterboxed frame, downscale to ~160×90 grayscale, mask detected boxes, estimate a robust global translation (+ optional scale) by block matching or phase correlation; return it with the detections; `Tracker.update` applies it to predicted boxes, only when the estimate is confident. Expected ≈ 1–2 ms per frame (estimate, not measured).
 - **Cheaper fallback:** the median displacement of confirmed tracks (no image work); unreliable with few tracks or many movers.
 - **Evaluation:** extend the clip runner to record each frame's motion estimate so the offline replay can compare counts and suspected re-counts with and without it. Go/no-go on the numbers.

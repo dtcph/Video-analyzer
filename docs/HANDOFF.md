@@ -18,7 +18,7 @@ Branch `V3`, remote `github.com/dtcph/Video-analyzer` (public). The user commits
 ## 2. Read, in this order
 
 1. [CLAUDE.md](../CLAUDE.md): commands, layering, module map, known limitations.
-2. [BRIEF.md](BRIEF.md): original requirements, verbatim. Decisions below override it.
+2. [BRIEF.md](BRIEF.md): original requirements. Decisions below override it.
 3. [decisions.md](decisions.md): §9 hosting, §10 license, §15 Phase 8.
 4. [performance.md](performance.md): the Phase 8 profile and fixes; [release-checklist.md](release-checklist.md): commit, deploy, checks.
 5. [clip-counts.md](clip-counts.md): per-clip totals, ground truth (§5); [benchmarks.md](benchmarks.md): all measurements.
@@ -26,7 +26,7 @@ Branch `V3`, remote `github.com/dtcph/Video-analyzer` (public). The user commits
 ## 3. Working agreements
 
 - Phase by phase: stop at the end, give the 5-part report (what changed; verified / NOT verified; numbers; unsure points and reversible decisions; next step), wait for approval.
-- Never make git commits. Never touch `old/` (read-only reference archive). Never add OpenCV.
+- Never make git commits. Never add OpenCV.
 - After every change set: `npx tsc --noEmit && npm run lint && npm run test && npx prettier --check .`
 - Do not change counting rules silently. Check library APIs against the installed version. One sentence of justification per new dependency; ask before any UI framework.
 - **Questions:** one batch, recommended option first; the user answers briefly. **In a discussion or suggestion turn, do not edit code.**
@@ -57,7 +57,7 @@ Tools: `node scripts/e2e/profileFlow.ts --build [--pre | --load]` profiles; `npm
 ## 6. Environment
 
 - M4 Max, macOS, Node 24.16 (≥ 22.12), Chrome 154 (`CHROME_PATH` overrides). The path has spaces and Korean characters: quote it.
-- Gitignored: `node_modules/ dist/ .cache/ test-vid/ test-img/ old/ .venv-export/`.
+- Gitignored: `node_modules/ dist/ .cache/ test-vid/ test-img/ .venv-export/`.
 - `test-vid/`: 7 H.264 clips (~30 fps), described in [clip-counts.md](clip-counts.md) §1. `test-img/` (3 stills) if missing: `ffmpeg -y -ss 2.0 -i test-vid/moving_car.mp4 -frames:v 1 -q:v 2 test-img/moving_car_t2.0.jpg`, and the same for `steady-2` at 1.0 s and `steady` at 4.9 s.
 - Python export venv only for re-exporting models: [scripts/export-model.md](../scripts/export-model.md).
 

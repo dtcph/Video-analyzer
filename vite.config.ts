@@ -28,8 +28,8 @@ export default defineConfig({
     define: { __SOURCE_COMMIT__: JSON.stringify(sourceCommit()) },
     server: {
         headers: crossOriginIsolation,
-        // The archived project must never be served or watched.
-        watch: { ignored: ["**/old/**", "**/test-vid/**", "**/test-img/**"] }
+        // Large local media must never be watched.
+        watch: { ignored: ["**/test-vid/**", "**/test-img/**"] }
     },
     preview: { headers: crossOriginIsolation },
     worker: { format: "es" },

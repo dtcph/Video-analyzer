@@ -4,7 +4,7 @@ import globals from "globals";
 import prettier from "eslint-config-prettier";
 
 export default tseslint.config(
-    { ignores: ["old/", "dist/", "node_modules/", "test-vid/", "test-img/", "public/", ".cache/", ".venv-export/"] },
+    { ignores: ["dist/", "node_modules/", "test-vid/", "test-img/", "public/", ".cache/", ".venv-export/"] },
     js.configs.recommended,
     ...tseslint.configs.recommended,
     {

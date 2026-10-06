@@ -28,7 +28,7 @@ export const EMPTY_FRAME_GATE_STATS: Readonly<FrameGateStats> = {
  * frame (Phase 8: frames presented unevenly, 17/50 ms apart, were dropped
  * although inference took less than a frame interval; docs/performance.md).
  *
- * Pure bookkeeping (in-flight logic ported from the V1 worker client): the
+ * Pure bookkeeping (in-flight logic): the
  * gate owns waiting items and hands each dropped one to `discard` (e.g. to
  * close a VideoFrame). The clock is injectable for tests.
  */

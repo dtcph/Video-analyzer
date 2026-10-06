@@ -25,11 +25,10 @@ npm run e2e:webcam -- --build && npm run e2e:pre -- --build
 
 **Must not be in the commit** (all gitignored; check with `git status --ignored --short`):
 
-- `old/`: the archived project; never commit or delete it (the user deletes it).
 - `test-vid/`, `test-img/`: local media, redistribution rights unknown.
 - `dist/`, `node_modules/`, `.cache/` (e2e reports, recordings), `.venv-export/`.
 
-Quick check: `git status --short` lists only intended files; `git ls-files | grep -E '^(old|test-vid|test-img|dist|\.cache)/'` prints nothing.
+Quick check: `git status --short` lists only intended files; `git ls-files | grep -E '^(test-vid|test-img|dist|\.cache)/'` prints nothing.
 
 ## 2. Deploy on Vercel (user)
 
