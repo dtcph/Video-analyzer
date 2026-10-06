@@ -50,7 +50,7 @@ Branch `V3`, remote `github.com/dtcph/Video-analyzer` (public). The user commits
 
 ## 5. After Phase 8: deployment check
 
-The user deploys on Vercel ([release-checklist.md](release-checklist.md) §2) and sends the URL. Then: run the checks of §3 there (headers, caching, compression of the `.wasm` and `.onnx`, footer links), open the site and run image, video (both modes) and webcam, and record the real first-load time in [performance.md](performance.md) §5. Nothing else is planned; new work starts with questions in one batch.
+The site is live at https://video-analyzer-sable.vercel.app/ (Vercel; deployed 2026-10-06). Quick check on 2026-10-06: HTTP 200, COOP/COEP headers present, hashed assets `immutable`, notices file served. Still to do: run the checks of §3 there (headers, caching, compression of the `.wasm` and `.onnx`, footer links), open the site and run image, video (both modes) and webcam, and record the real first-load time in [performance.md](performance.md) §5. Nothing else is planned; new work starts with questions in one batch.
 
 Tools: `node scripts/e2e/profileFlow.ts --build [--pre | --load]` profiles; `npm run e2e:clips -- --build [--model auto|n|s] [--backend wasm] --label x` records; `node scripts/e2e/sweepTracker.ts --label x --switches | --truth | --detail clip.mp4` replays. Recordings in `.cache/e2e/clip-counts/`: `p7-webgpu` (YOLOv8n), `p7-webgpu-s` (YOLOv8s), `p8-wasm`.
 
@@ -85,4 +85,4 @@ Tools: `node scripts/e2e/profileFlow.ts --build [--pre | --load]` profiles; `npm
 
 - Real camera, real unplugging, mobile; weaker or integrated GPUs, no `shader-f16`, Windows/Android; headed Chrome; long or 500 MB files; WebM/MKV, HEVC, AV1; WASM determinism; Retry after a real model-load failure.
 - Not measured in Phase 7: input size > 640 (needs a schema option), OC-SORT re-update for fast scale change (`steady.mp4`).
-- The real deployment (headers, compression, first load over a real network) until the user sends the URL. Repo name kept (2026-10-06).
+- The real deployment (headers, compression, first load over a real network) on the live site. Repo name kept (2026-10-06).

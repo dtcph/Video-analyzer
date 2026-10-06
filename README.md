@@ -1,5 +1,7 @@
 # Object Counter
 
+**Try it: https://video-analyzer-sable.vercel.app/** (Chrome or another Chromium-based browser, on a desktop computer).
+
 Every second, our eyes take in far more than we notice. Cars pass, people cross the street, a dog walks by, and almost none of it reaches conscious thought. The information keeps streaming in, nonstop, and we filter it without thinking about it.
 
 **Object Counter makes that stream visible.** It watches a video, an image or your webcam the way a machine does: it marks every person, vehicle and animal it recognizes, follows them from frame to frame, and keeps count. What we perceive in passing becomes data you can see: boxes, labels and a running tally of everything that went by.
@@ -58,6 +60,8 @@ The site needs two HTTP headers for multi-threaded WebAssembly (`Cross-Origin-Op
 Copyright (C) 2026 Paul
 
 This program is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public License as published by the Free Software Foundation, version 3. It is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See [LICENSE](LICENSE) for the full text.
+
+Live site: https://video-analyzer-sable.vercel.app/
 
 Source code: https://github.com/dtcph/Video-analyzer
 

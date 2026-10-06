@@ -2,6 +2,8 @@
 
 **Object Counter (V3):** client-side website (Chrome) that runs YOLOv8 (ONNX, onnxruntime-web) on an image, video or webcam, draws boxes and counts objects per class: **Total** (unique confirmed tracks) and **Current frame** (paused). No backend, persistence or export.
 
+Live: https://video-analyzer-sable.vercel.app/
+
 **Resuming? Read [docs/HANDOFF.md](docs/HANDOFF.md) first.** Phases 0–7 approved; **8** (performance pass + release) done, awaiting approval; then the user deploys. Requirements: [BRIEF.md](docs/BRIEF.md); reasoning: [decisions.md](docs/decisions.md); numbers: [performance.md](docs/performance.md), [benchmarks.md](docs/benchmarks.md), [clip-counts.md](docs/clip-counts.md); release: [release-checklist.md](docs/release-checklist.md).
 
 ## Rules

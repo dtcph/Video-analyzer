@@ -1,9 +1,9 @@
 # Prompt to continue the project
 
-Paste everything inside the box below into a new Claude Code session opened in this repository, with the deployment URL filled in.
+Paste everything inside the box below into a new Claude Code session opened in this repository, .
 
 ```text
-Continue the Object Counter V3 project (this repository, branch V3). Phases 0–8 are done and approved. The site is deployed at <URL>.
+Continue the Object Counter V3 project (this repository, branch V3). Phases 0–8 are done and approved. The site is deployed at https://video-analyzer-sable.vercel.app/.
 
 First read docs/HANDOFF.md, then docs/release-checklist.md and docs/performance.md §5.
 

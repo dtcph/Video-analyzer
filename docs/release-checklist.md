@@ -40,7 +40,7 @@ Quick check: `git status --short` lists only intended files; `git ls-files | gre
 
 ## 3. Check the deployment
 
-Replace `URL` with the deployment's address (`https://….vercel.app`).
+Replace `URL` with the deployment's address: `https://video-analyzer-sable.vercel.app`.
 
 ```bash
 curl -sI URL/ | grep -iE 'cross-origin-(opener|embedder)-policy'
@@ -66,4 +66,4 @@ In Chrome:
 - **Footer:** "source code (abc1234)" opens the deployed commit on GitHub; "Third-party notices" opens the notices file.
 - **End to end:** an image, a video in Realtime and in Pre-analysis, and the webcam all show boxes and counts.
 
-Send the URL back to have the headers and flows verified (docs/HANDOFF.md).
+The first three header checks passed on 2026-10-06; the rest is still to do.
