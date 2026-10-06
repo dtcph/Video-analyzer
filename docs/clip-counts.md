@@ -1,4 +1,4 @@
-# Clip counts (Phase 4)
+# Clip counts (Phases 4 and 7)
 
 Totals the app reports for each clip in `test-vid/`, with the ID switches and double counts observed, so they can be compared against the footage. Measured 2026-10-03 on the M4 Max, Chrome 154, production build, YOLOv8n ("Fast"), default settings: People + Animals + Transportation, confidence 25%, max inference rate 30 fps, **confirmation frames 3, track-lost buffer 2 s**. Each clip was played once from start to end at 1×.
 
@@ -106,3 +106,85 @@ Reading:
 - One playthrough per clip and backend; totals vary by up to ~10% between playthroughs on busy clips (see section 1).
 - "Expected" counts are estimates from frame grids, not a labeled ground truth.
 - Rewinding, seeking or replaying counts objects again (user decision); press **Reset counts** before replaying. The clip runs play each clip once from the start; `npm run e2e:counts` checks that a seek keeps the totals and clears the tracks.
+
+## 5. Phase 7: tracking quality check (2026-10-06)
+
+Two new recordings on the production build, WebGPU, input 640, default settings (N = 3, lost buffer 2 s, max 30 fps): `p7-webgpu` (YOLOv8n) and `p7-webgpu-s` (YOLOv8s, now the WebGPU default via "Auto"). Every variant below replays the same recorded detections offline (`node scripts/e2e/sweepTracker.ts --label <label> --switches`). Format: objects counted (strict ID switches).
+
+**Strict ID switch:** a counted track that starts within 1 s after an earlier counted track of the same group was last seen, at a similar size (within 2×), with overlapping boxes once both are enlarged by 50% per side. It replaces the Phase 4 "suspected re-count" heuristic, which scales distance by the larger box, so one big bus box "explained" ten small new cars on `moving_car`.
+
+### Totals per model (Phase 6 tracker)
+
+| clip              | YOLOv8n                                        | YOLOv8s                                                 |
+| ----------------- | ---------------------------------------------- | ------------------------------------------------------- |
+| moving_car        | 59 (8): 43 car, 6 person, 5 bus, 4 truck, 1 mc | 63 (11): 48 car, 6 truck, 4 bus, 3 person, 2 motorcycle |
+| moving_drone      | 134 (6): 80 car, 54 person                     | 141 (3): 75 car, 63 person, 2 motorcycle, 1 bicycle     |
+| moving_drone-2    | 85 (1): 43 car, 38 person, 2 bus, 2 truck      | 98 (1): 50 person, 42 car, 4 truck, 1 sheep, 1 bird     |
+| moving_handheld-2 | 18 (2): 12 car, 5 person, 1 truck              | 21 (0): 14 car, 6 person, 1 truck                       |
+| moving_handheld   | 1 (0): 1 person                                | 1 (0): 1 person                                         |
+| steady-2          | 94 (6): 76 car, 15 person, 2 motorcycle, 1 bus | 113 (8): 77 car, 16 person, **13 motorcycle**, 7 truck  |
+| steady            | 8 (0): 5 person, 2 dog, **1 horse**            | 7 (0): 4 dog, 3 person                                  |
+
+Inference rate in these runs: YOLOv8n 17.8–28.3 fps (it carried the camera-motion estimate, below), YOLOv8s 17.9–21.7 fps.
+
+### Variants (YOLOv8n recording)
+
+| variant                                             | moving_car | drone-2 | drone    | handheld-2 | handheld | steady-2 | steady |
+| --------------------------------------------------- | ---------- | ------- | -------- | ---------- | -------- | -------- | ------ |
+| Phase 6 tracker                                     | 59 (8)     | 85 (1)  | 134 (6)  | 18 (2)     | 1 (0)    | 94 (6)   | 8 (0)  |
+| + camera-motion compensation                        | 63 (9)     | 86 (2)  | 134 (6)  | 19 (2)     | 1 (0)    | 95 (5)   | 7 (0)  |
+| + occlusion-aware lost (cover ≥ 0.5)                | 59 (8)     | 85 (1)  | 132 (6)  | 18 (2)     | 1 (0)    | 94 (6)   | 8 (0)  |
+| + occlusion, hidden kept 2×, buffered IoU 1.0       | 58 (8)     | 86 (1)  | 134 (10) | 18 (2)     | 1 (0)    | 91 (3)   | 8 (0)  |
+| buffered IoU 0.3 on tracked tracks (scale lag)      | 64 (10)    | 86 (1)  | 127 (5)  | 19 (1)     | 1 (0)    | 93 (2)   | 8 (0)  |
+| contained duplicates ≥ 80% (car/bus/truck), YOLOv8n | 55 (4)     | 83 (1)  | 129 (6)  | 17 (2)     | 1 (0)    | 92 (6)   | 8 (0)  |
+| contained duplicates ≥ 80% (car/bus/truck), YOLOv8s | 59 (9)     | 98 (1)  | 141 (3)  | 20 (0)     | 1 (0)    | 112 (7)  | 7 (0)  |
+
+- **Camera motion** (gated at any quality threshold 0–0.3, with or without quadrant agreement: identical rows): the clips' cameras move 4–6% of the frame width per second, smoothly (frame-to-frame velocity change ~0.005 widths/s); the Kalman filter already predicts that. At half rate (motions chained over skipped frames): moving_car 47 → 45, drone-2 72 → 73, steady 7 → 6, others equal. Cost 3.5–5.7 ms per frame in the worker. **Removed.**
+- **Occlusion-aware lost handling** (cover 0.3–0.5, occluder in front or any, kept 2–3×, buffered IoU 0.5–1.0): ±1–4 per clip in both directions. **Removed.**
+- **Per-class minimum scores** (replay only): horse/sheep/cow at 50% change nothing, at 60% `steady` loses one person but keeps the "horse"; truck/bus at 40% moves 1–2 counts to car on `moving_car`, `moving_drone-2`, `moving_handheld-2`. **Not built.**
+- **Contained duplicates:** without the car/bus/truck restriction (≥ 80%, any class) it also removed motorcycles under their riders (`steady-2`) and people standing close together (`moving_drone`). Restricted: −4 on `moving_car`, ≤ 1 elsewhere; at the 35% default only −1. **Removed** (user decision).
+
+### What the 63 `moving_car` counts are (YOLOv8s)
+
+One crop per counted track at its confirmation, box drawn (`.cache/e2e/track-crops/moving_car/sheet_*.jpg`; judged by eye, rough):
+
+| kind                                                                                                                                 | count   |
+| ------------------------------------------------------------------------------------------------------------------------------------ | ------- |
+| distinct real objects (cars, buses, trucks, 4 pedestrians, 1 scooter)                                                                | ≈ 43    |
+| concurrent duplicates: a second track on an object already tracked (a truck's cab, halves of an occluded car, a second box on a bus) | ≈ 10–12 |
+| re-counts after a break (blue bus 261, a yellow truck, a silver sedan)                                                               | ≈ 5     |
+| false positives (a "car" on a sign post)                                                                                             | ≈ 2–3   |
+
+So the footage holds more vehicles than the 20–30 estimated in §1, and ID switches are a minor part of the excess.
+
+### Ground truth and the confidence threshold
+
+Counted by the user at full resolution (2026-10-06); only classes the default groups count are scored (also in the footage: `moving_car` 3 traffic lights; `moving_handheld-2` 2 bus stops, 7 traffic signs, 4–5 benches). `steady.mp4`: 1 person + 1 dog per shot (2 + 2 across the cut). Ranges: a car entering in the last frames, a cyclist only in the first frame.
+
+| clip              | truth                                                  |
+| ----------------- | ------------------------------------------------------ |
+| moving_car        | 33–34 car, 10 truck, 3 bus, 3 motorcycle, 26 person    |
+| moving_handheld-2 | 10 car, 2 truck, 1 motorcycle, 3–4 person, 0–1 bicycle |
+| steady            | 2 person, 2 dog                                        |
+
+Replay of the same recordings at other thresholds (`sweepTracker.ts --label <label> --truth`; valid because the recordings hold every detection from 0.1). Cells: total counted, sum of per-class absolute errors (lower is better):
+
+| threshold | YOLOv8s moving_car | handheld-2 | steady | **Σ**  | YOLOv8n moving_car | handheld-2 | steady | **Σ**  |
+| --------- | ------------------ | ---------- | ------ | ------ | ------------------ | ---------- | ------ | ------ |
+| 25%       | 63, 43             | 21, 8      | 7, 3   | 54     | 59, 39             | 18, 5      | 8, 4   | 48     |
+| 30%       | 55, 35             | 18, 5      | 6, 2   | 42     | 53, 43             | 16, 3      | 8, 4   | 50     |
+| **35%**   | 49, 33             | 16, 3      | 6, 2   | **38** | 44, 32             | 16, 3      | 6, 2   | **37** |
+| 40%       | 51, 37             | 15, 4      | 6, 2   | 43     | 40, 35             | 13, 4      | 6, 2   | 41     |
+| 45%       | 44, 33             | 15, 4      | 6, 2   | 39     | 35, 40             | 11, 6      | 6, 2   | 48     |
+| 50%       | 42, 35             | 15, 4      | 6, 2   | 41     | 36, 41             | 8, 8       | 6, 2   | 51     |
+| 60%       | 37, 38             | 11, 7      | 6, 2   | 47     | 30, 47             | 6, 10      | 6, 2   | 59     |
+
+- **Default 35% for both models** (2026-10-06; the user first set 60%, then asked for the best threshold per model): both score best there. At half the frame rate (`--every 2`) YOLOv8s scores 41 at 35% vs 40 at 40%, YOLOv8n is best at 30–35%. Cars at 35%: YOLOv8s 36 on `moving_car` (truth 33–34) and 11 on `moving_handheld-2` (10); YOLOv8n 34 and 10.
+- **Cars** (YOLOv8s): 48 / 39 / 31 / 28 at 25 / 40 / 50 / 60% against 33–34 on `moving_car`; 14 / 9 / 9 / 6 against 10 on `moving_handheld-2`. At 25% duplicates and re-counts inflate them; at 60% real cars are missed.
+- **People on `moving_car`:** 26 in the footage, 0–6 counted at any threshold: the far pedestrians are too small for either model at input 640. Trucks are under-counted too (5 of 10 with YOLOv8s; small trucks are labeled car).
+- **`steady.mp4`** stays at 3 person + 3 dog (YOLOv8s) from 40% up: the scale-change break remains.
+- **Image stills at 35%** (Auto, YOLOv8s): steady-2 16 cars, 4 trucks, 1 bus, 1 person (60%: 10 cars, 1 bus, 1 truck; 25%: 18 cars, 4 trucks, 1 bus, 1 motorcycle, 1 person).
+
+### `steady.mp4`: why the person is counted twice per shot
+
+The person shrinks from 67% to 15% of the frame height in about 2 s while walking away. The predicted box lags, the IoU falls below the gate, and a second track starts (6.5 s) while the first is still alive (until 6.9 s). The dog breaks at the same moment. Neither occlusion handling nor buffered IoU on tracked tracks fixes it.

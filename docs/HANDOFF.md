@@ -1,26 +1,26 @@
 # Handoff: Object Counter V3
 
-**Written 2026-10-03, at the close of Phase 6.** Read this first when resuming; start a session with [CONTINUE-PROMPT.md](CONTINUE-PROMPT.md).
+**Updated 2026-10-06 at the close of Phase 7.** Read this first when resuming; start a session with [CONTINUE-PROMPT.md](CONTINUE-PROMPT.md).
 
 ## 1. State
 
-| phase | content                                                        | status                      |
-| ----- | -------------------------------------------------------------- | --------------------------- |
-| 0–3   | scaffold, model/runtime spike, image detection, realtime video | approved, committed         |
-| 4     | tracking + total counts                                        | approved 2026-10-03         |
-| 5     | webcam                                                         | approved 2026-10-03         |
-| 6     | pre-analysis mode                                              | approved 2026-10-03         |
-| **7** | **tracking quality check + overhaul** (inserted by the user)   | **next: ask options first** |
-| 8     | performance pass + release (the brief's Phase 7)               |                             |
+| phase | content                                                        | status              |
+| ----- | -------------------------------------------------------------- | ------------------- |
+| 0–3   | scaffold, model/runtime spike, image detection, realtime video | approved, committed |
+| 4     | tracking + total counts                                        | approved 2026-10-03 |
+| 5     | webcam                                                         | approved 2026-10-03 |
+| 6     | pre-analysis mode                                              | approved 2026-10-03 |
+| 7     | tracking quality check (inserted by the user)                  | approved 2026-10-06 |
+| **8** | **performance pass + release** (the brief's Phase 7)           | **next**            |
 
-Branch `V3`, remote `github.com/dtcph/Video-analyzer` (public). The user commits; Phase 6 is in the working tree, ready to commit.
+Branch `V3`, remote `github.com/dtcph/Video-analyzer` (public). The user commits; Phase 7 is in the working tree.
 
 ## 2. Read, in this order
 
 1. [CLAUDE.md](../CLAUDE.md): commands, layering, module map, known limitations.
 2. [BRIEF.md](BRIEF.md): original requirements, verbatim. Decisions below override it.
-3. [decisions.md](decisions.md): §12 (Phase 7 candidates) first; §6 tracker, §13 webcam, §14 pre-analysis.
-4. [clip-counts.md](clip-counts.md): per-clip totals and failure analysis (the Phase 7 baseline).
+3. [decisions.md](decisions.md): §9 hosting, §10 license first (Phase 8); §12 Phase 7 outcome.
+4. [clip-counts.md](clip-counts.md): per-clip totals, ground truth (§5).
 5. [benchmarks.md](benchmarks.md): all measurements.
 
 ## 3. Working agreements
@@ -43,13 +43,15 @@ Branch `V3`, remote `github.com/dtcph/Video-analyzer` (public). The user commits
 | Tracker         | Confirmation 3 frames, lost buffer 2 s (chosen on the clips). Max inference rate 30 fps.                                        |
 | Webcam          | Pause freezes + Current frame (tracker skips the paused time); not mirrored; Stop keeps totals.                                 |
 | Pre-analysis    | Stop keeps a resumable partial (locked); cache holds all classes; Realtime is the default mode; sampling capped by the rate.    |
-| Phase 7         | Tracking quality check + overhaul: camera motion, occlusion, misclassification (book → cell phone), every helper. Ask first.    |
+| Phase 7         | Camera motion, occlusion handling, per-class thresholds and contained-duplicate suppression measured and dropped.               |
+| Model default   | "Auto": YOLOv8s on WebGPU with `shader-f16`, YOLOv8n elsewhere (2026-10-06).                                                    |
+| Confidence      | Default 35% (2026-10-06, was 25%; best for both models against the user's counts).                                              |
 
-## 5. Phase 7: how to start
+## 5. Phase 8: how to start
 
-1. **Ask in one batch** which options to build ([decisions.md](decisions.md) §12), recommended first: ground-truth labels (needs the user's help), occlusion-aware lost handling, observation-centric re-update (OC-SORT), color-histogram appearance, camera-motion compensation (pure TS, global shift on a ~160×90 downscale with detections masked), misclassification measures (YOLOv8s default, per-class thresholds, input size), learned ReID (pre-analysis only), offline tracklet stitching (would lower totals: a counting-rule change, needs approval).
-2. **Measure before/after** with what exists: `npm run e2e:clips` records detections per clip; `node scripts/e2e/sweepTracker.ts --label reattr-webgpu-30` replays them through the tracker offline (recordings kept in `.cache/e2e/clip-counts/`). Image-based options (camera motion, appearance) need the runner to record those per frame too.
-3. Update `clip-counts.md` with before/after per clip.
+Brief's Phase 7 ([BRIEF.md](BRIEF.md)) plus the to-dos in §9: profile end to end and fix the top bottlenecks (`docs/performance.md`, before/after), finalize the settings UI, README (deployment, browsers, known limitations), `vercel.json`, `THIRD_PARTY_NOTICES`, final CLAUDE.md, pre-commit checklist. Ask open questions in one batch first.
+
+Phase 7 tools stay available: `npm run e2e:clips -- --build [--model auto|n|s] --label x` records; `node scripts/e2e/sweepTracker.ts --label x --switches | --truth | --detail clip.mp4` replays. Recordings `p7-webgpu` (YOLOv8n), `p7-webgpu-s` (YOLOv8s) in `.cache/e2e/clip-counts/`.
 
 ## 6. Environment
 
@@ -60,9 +62,10 @@ Branch `V3`, remote `github.com/dtcph/Video-analyzer` (public). The user commits
 
 ## 7. Regression baselines
 
-- Unit tests: 164. On the build: `e2e` (image counts below), `e2e:video` (0 stale draws, paused frame exact, 0 dropped video frames), `e2e:counts` 6/6, `e2e:webcam` 15/15, `e2e:pre` 15/15.
-- Image counts, Fast / Accurate: moving_car 4 cars, 1 bus, 1 truck / 4 cars, 2 buses, 2 trucks; steady-2 17 cars, 2 people, 1 bus, 1 truck / 18 cars, 4 trucks, 1 bus, 1 motorcycle, 1 person; steady 1 horse, 1 person / 1 dog, 1 person.
-- Realtime WebGPU at the 30 fps cap: 25–30 inference fps; WASM ~17–20. Pre-analysis: 3.4–3.8× realtime (WebGPU), 1.4–1.8× (WASM).
+- Unit tests: 165. On the build: `e2e` (image counts below), `e2e:video` (0 stale draws, paused frame exact, 0 dropped video frames), `e2e:counts` 6/6, `e2e:webcam` 15/15, `e2e:pre` 15/15.
+- Image counts at 35% (default since 2026-10-06): Auto on WebGPU (YOLOv8s) moving_car 3 cars, 2 buses, 2 trucks; steady-2 16 cars, 4 trucks, 1 bus, 1 person; steady 1 dog, 1 person. Fast or WASM (YOLOv8n): 4 cars, 1 bus, 1 truck; 16 cars, 2 people, 1 bus, 1 truck; 1 horse, 1 person.
+- Image counts at 25% (before 2026-10-06), Fast / Accurate: moving_car 4 cars, 1 bus, 1 truck / 4 cars, 2 buses, 2 trucks; steady-2 17 cars, 2 people, 1 bus, 1 truck / 18 cars, 4 trucks, 1 bus, 1 motorcycle, 1 person; steady 1 horse, 1 person / 1 dog, 1 person.
+- Realtime WebGPU at the 30 fps cap: 22.7–24.6 inference fps with Auto (YOLOv8s), 25–30 with Fast; WASM ~17–20. Pre-analysis: 2.1× realtime with Auto (WebGPU), 3.4–3.8× with Fast, 1.4–1.8× (WASM).
 
 ## 8. Gotchas
 
@@ -74,8 +77,11 @@ Branch `V3`, remote `github.com/dtcph/Video-analyzer` (public). The user commits
 - In-page `import("/src/…")` on the dev server makes Vite's optimizer reload the page once: load, wait, reload, then evaluate.
 - Run Prettier before exact-string edits (it breaks anchors). Never run a bare `cat > file` (hangs). e2e scripts run from the repo root. macOS has no `timeout`.
 - happy-dom: a disconnected checkbox fires no `change` on `click()`.
+- e2e hooks: `.media-stage[data-draw-time|data-result-time|data-boxes]`, `data-trace="1"` → `trackerupdate` events; `.counts-panel[data-revision]`, `.model-status[data-state]`, `.webcam-panel[data-state]`, `.analysis-panel[data-mode|data-status]`. DOM tests use `// @vitest-environment happy-dom`.
+- Hosting budget: Vercel Hobby 100 MB, `dist/` ~82 MB: no extra model variants.
 
 ## 9. Not verified / open
 
 - Real camera, real unplugging, mobile; weaker or integrated GPUs, no `shader-f16`, Windows/Android; headed Chrome; long or 500 MB files; WebM/MKV, HEVC, AV1; WASM determinism; Retry after a real model-load failure.
+- Not measured in Phase 7: input size > 640 (needs a schema option), OC-SORT re-update for fast scale change (`steady.mp4`).
 - Phase 8 to-dos: `vercel.json` (COOP/COEP + immutable `/assets/*`, check with `curl -I`), `THIRD_PARTY_NOTICES` (onnxruntime-web MIT, mediabunny MPL-2.0), README, `docs/performance.md`, pre-commit checklist, final CLAUDE.md, WebGPU IO binding (≤ 1 ms). Repo rename: unanswered.

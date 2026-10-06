@@ -341,7 +341,7 @@ try {
         );
 
         // Tracking-only change: stale, cache kept; Re-analyze re-runs tracking only (fast).
-        await setRange(page, "confidenceThreshold", 0.5);
+        await setRange(page, "confidenceThreshold", 0.8); // above the 35% default: fewer objects
         await sleep(300);
         const staleTracking = await ui(page);
         check(

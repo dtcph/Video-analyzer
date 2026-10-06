@@ -7,6 +7,7 @@ describe("planModel", () => {
     it("uses WebGPU with FP16 files when the adapter supports shader-f16", () => {
         expect(planModel("n", "auto", gpu(true, true))).toEqual({
             backend: "webgpu",
+            size: "n",
             file: "yolov8n-640-dyn-fp16.onnx",
             notes: []
         });
@@ -16,6 +17,7 @@ describe("planModel", () => {
     it("uses the FP32 nano file on adapters without shader-f16, and WASM for the small model", () => {
         expect(planModel("n", "auto", gpu(true, false))).toEqual({
             backend: "webgpu",
+            size: "n",
             file: "yolov8n-640-dyn.onnx",
             notes: []
         });
@@ -34,6 +36,7 @@ describe("planModel", () => {
     it("honors a forced WASM backend silently, even with a capable GPU", () => {
         expect(planModel("s", "wasm", gpu(true, true))).toEqual({
             backend: "wasm",
+            size: "s",
             file: "yolov8s-640-dyn-fp16.onnx",
             notes: []
         });
@@ -43,5 +46,20 @@ describe("planModel", () => {
         const retry = wasmFallback(planModel("n", "auto", gpu(true, false)), "n", "device lost");
         expect([retry.backend, retry.file]).toEqual(["wasm", "yolov8n-640-dyn-fp16.onnx"]);
         expect(retry.notes.at(-1)).toContain("device lost");
+    });
+
+    it('resolves "auto" to YOLOv8s on WebGPU with FP16 and to YOLOv8n everywhere else', () => {
+        const webgpu = planModel("auto", "auto", gpu(true, true));
+        expect([webgpu.backend, webgpu.size, webgpu.file]).toEqual(["webgpu", "s", "yolov8s-640-dyn-fp16.onnx"]);
+        // No FP16: the nano FP32 file on WebGPU rather than the small model on the CPU.
+        const noF16 = planModel("auto", "auto", gpu(true, false));
+        expect([noF16.backend, noF16.size, noF16.file]).toEqual(["webgpu", "n", "yolov8n-640-dyn.onnx"]);
+        expect(noF16.notes).toEqual([]);
+        const noGpu = planModel("auto", "auto", gpu(false, false));
+        expect([noGpu.backend, noGpu.size]).toEqual(["wasm", "n"]);
+        const forced = planModel("auto", "wasm", gpu(true, true));
+        expect([forced.backend, forced.size, forced.file]).toEqual(["wasm", "n", "yolov8n-640-dyn-fp16.onnx"]);
+        const retry = wasmFallback(webgpu, "auto", "device lost");
+        expect([retry.backend, retry.size, retry.file]).toEqual(["wasm", "n", "yolov8n-640-dyn-fp16.onnx"]);
     });
 });

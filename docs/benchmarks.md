@@ -289,3 +289,12 @@ Measured 2026-10-03 with `npm run e2e:pre -- --build --speed [--backend wasm]` (
 - Re-analyze after a confidence change (tracking only, steady-2): 33 ms.
 - Cache memory: ≤ 2 MiB per clip here (packed Float32, all classes above 5%).
 - Bundle: mediabunny is a separate 361 KB chunk loaded on the first analysis; the main bundle is 83.5 KB.
+
+## Phase 7: tracking quality check (2026-10-06)
+
+M4 Max, Chrome 154, production build, WebGPU unless noted. Clip evidence: [clip-counts.md](clip-counts.md) §5.
+
+- **Camera-motion estimate (removed):** 160 px gray thumbnail + coarse-to-fine masked SAD in the worker. Node: 0.5 ms thumbnail + 1.2 ms estimate (2.3 ms before trimming the search). In the worker during clip runs: **3.5–5.7 ms median, ≤ 9 ms max** per frame, which lowered the inference rate. No count improvement, so not shipped.
+- **"Auto" = YOLOv8s on WebGPU (new default), `e2e:video`:** at the 30 fps cap 22.7–24.6 inference fps, 12–19% of samples dropped (YOLOv8n: 25–30 fps); inference 12.5–20.5 ms; at 15 fps no drops; 0 dropped video frames; WASM (YOLOv8n) unchanged at 17.6–19.7 fps.
+- **Full clips (`e2e:clips`), YOLOv8s:** 17.9–21.7 inference fps, 22–42% of samples dropped.
+- **Pre-analysis, YOLOv8s on WebGPU:** 2.1× realtime on `steady-2` (YOLOv8n: 3.4–3.8×).

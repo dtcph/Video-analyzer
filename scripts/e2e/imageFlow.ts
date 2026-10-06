@@ -80,7 +80,7 @@ try {
     await page.goto(server.url, { waitUntil: "load" });
     report.crossOriginIsolated = await page.evaluate(() => self.crossOriginIsolated);
 
-    // 1. Default settings (auto backend), every still.
+    // 1. Default settings (auto backend; model Auto = YOLOv8s on WebGPU since Phase 7), every still.
     report.modelAuto = await waitForModel(page);
     const auto: Record<string, unknown> = {};
     for (const file of stills) {
@@ -110,15 +110,15 @@ try {
     await page.click('.class-item[data-class-id="2"] input');
     await page.$eval('[data-setting="confidenceThreshold"] input', (el) => {
         const input = el as HTMLInputElement;
-        input.value = "0.6";
+        input.value = "0.8";
         input.dispatchEvent(new Event("input"));
     });
-    toggles.confidence60 = await readCounts(page);
+    toggles.confidence80 = await readCounts(page);
     await page.click(".settings-reset-button");
     toggles.afterReset = await readCounts(page);
     report.toggles = toggles;
 
-    // 3. Forced WASM backend: reload, then every still again.
+    // 3. Forced WASM backend (model Auto = YOLOv8n there): reload, then every still again.
     await setSelect(page, "backend", 2); // options: auto, webgpu, wasm
     report.modelWasm = await waitForModel(page);
     const wasm: Record<string, unknown> = {};
@@ -129,18 +129,18 @@ try {
     }
     report.wasm = wasm;
 
-    // 4. "Accurate" model (YOLOv8s) on the auto backend.
+    // 4. "Fast" model (YOLOv8n) on the auto backend.
     await setSelect(page, "backend", 0);
-    await setSelect(page, "modelSize", 1); // options: n, s
-    report.modelSmall = await waitForModel(page);
-    const small: Record<string, unknown> = {};
+    await setSelect(page, "modelSize", 1); // options: auto, n, s
+    report.modelFast = await waitForModel(page);
+    const fast: Record<string, unknown> = {};
     for (const file of stills) {
         await uploadAndWait(page, file);
         const name = file.split("/").pop() ?? file;
-        small[name] = { counts: await readCounts(page), debug: await debugText(page) };
-        await (await page.$(".media-stage"))?.screenshot({ path: `${OUT}/small__${name.replace(".jpg", ".png")}` });
+        fast[name] = { counts: await readCounts(page), debug: await debugText(page) };
+        await (await page.$(".media-stage"))?.screenshot({ path: `${OUT}/fast__${name.replace(".jpg", ".png")}` });
     }
-    report.small = small;
+    report.fast = fast;
 
     // 5. Unsupported file: a clear error, nothing loaded.
     writeFileSync(`${OUT}/not-media.txt`, "hello");

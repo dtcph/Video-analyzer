@@ -32,10 +32,10 @@ describe("SettingsPanel", () => {
         const { store, control } = setup();
 
         const slider = control("confidenceThreshold").querySelector("input") as HTMLInputElement;
-        slider.value = "0.6";
+        slider.value = "0.4";
         slider.dispatchEvent(new Event("input"));
-        expect(store.get("confidenceThreshold")).toBe(0.6);
-        expect(control("confidenceThreshold").querySelector(".settings-value")?.textContent).toBe("60%");
+        expect(store.get("confidenceThreshold")).toBe(0.4);
+        expect(control("confidenceThreshold").querySelector(".settings-value")?.textContent).toBe("40%");
 
         const select = control("inputSize").querySelector("select") as HTMLSelectElement;
         select.value = "0";
@@ -55,7 +55,7 @@ describe("SettingsPanel", () => {
 
         store.set("modelSize", "s");
         expect(reset.disabled).toBe(false);
-        expect((control("modelSize").querySelector("select") as HTMLSelectElement).value).toBe("1");
+        expect((control("modelSize").querySelector("select") as HTMLSelectElement).value).toBe("2"); // options: auto, n, s
 
         reset.click();
         expect(store.isAtDefaults()).toBe(true);

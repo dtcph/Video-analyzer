@@ -16,12 +16,14 @@
 export type SettingGroup = "main" | "advanced" | "debug";
 
 export type ModelSize = "n" | "s";
+/** The model setting: a size, or "auto" (YOLOv8s on WebGPU with FP16, else YOLOv8n; resolved by modelPlan.ts). */
+export type ModelChoice = "auto" | ModelSize;
 export type InputSize = 320 | 416 | 640;
 export type BackendPreference = "auto" | "webgpu" | "wasm";
 
 export interface Settings {
     confidenceThreshold: number;
-    modelSize: ModelSize;
+    modelSize: ModelChoice;
     iouThreshold: number;
     inputSize: InputSize;
     maxInferenceFps: number;
@@ -86,19 +88,24 @@ export const SETTINGS_SCHEMA: { readonly [K in SettingKey]: SettingDef<Settings[
         max: 0.95,
         step: 0.05,
         format: "percent",
-        // Ultralytics' predict default.
-        default: 0.25
+        // Phase 7 (2026-10-06, was Ultralytics' 0.25): the best threshold against the user's ground truth for both
+        // YOLOv8s and YOLOv8n (docs/clip-counts.md §5); the user's 60% missed real cars, 25% over-counted.
+        default: 0.35
     },
     modelSize: {
         kind: "choice",
         label: "Model",
-        description: "YOLOv8n is fastest; YOLOv8s is more accurate but slower.",
+        description:
+            "YOLOv8n is fastest; YOLOv8s is more accurate but slower. Auto uses YOLOv8s on WebGPU and YOLOv8n on the CPU (WASM).",
         group: "main",
         options: [
+            { value: "auto", label: "Auto (Accurate on WebGPU)" },
             { value: "n", label: "Fast (YOLOv8n)" },
             { value: "s", label: "Accurate (YOLOv8s)" }
         ],
-        default: "n"
+        // Phase 7 (user decision 2026-10-06): YOLOv8s fixes class errors YOLOv8n makes on the clips
+        // (dog as horse/cow, missed motorcycles) at 18–22 fps on WebGPU (M4 Max); too slow for WASM.
+        default: "auto"
     },
     iouThreshold: {
         kind: "number",

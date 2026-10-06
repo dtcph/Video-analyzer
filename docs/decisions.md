@@ -25,11 +25,12 @@ Evidence is in [benchmarks.md](benchmarks.md). All measurements come from one hi
 
 ## 2. Model files
 
-| setting        | file                        | size    | used when                               |
-| -------------- | --------------------------- | ------- | --------------------------------------- |
-| Fast (default) | `yolov8n-640-dyn-fp16.onnx` | 6.1 MB  | WebGPU with `shader-f16`, and WASM      |
-| Fast, fallback | `yolov8n-640-dyn.onnx`      | 12.1 MB | WebGPU adapter **without** `shader-f16` |
-| Accurate       | `yolov8s-640-dyn-fp16.onnx` | 21.3 MB | WebGPU with `shader-f16`, and WASM      |
+| setting        | file                        | size    | used when                                                            |
+| -------------- | --------------------------- | ------- | -------------------------------------------------------------------- |
+| Fast           | `yolov8n-640-dyn-fp16.onnx` | 6.1 MB  | WebGPU with `shader-f16`, and WASM                                   |
+| Fast, fallback | `yolov8n-640-dyn.onnx`      | 12.1 MB | WebGPU adapter **without** `shader-f16`                              |
+| Accurate       | `yolov8s-640-dyn-fp16.onnx` | 21.3 MB | WebGPU with `shader-f16`, and WASM                                   |
+| Auto (default) | one of the above            |         | Accurate on WebGPU with `shader-f16`, else Fast (Phase 7, §12 below) |
 
 - **FP16:**
   - lossless in the accuracy check (rect, n: 0.996 / 0.998);
@@ -45,6 +46,7 @@ Evidence is in [benchmarks.md](benchmarks.md). All measurements come from one hi
   - I could not test such a GPU, so it is unknown whether ORT's WebGPU EP would run an FP16 graph there at all.
   - The app therefore checks `adapter.features.has("shader-f16")` and uses FP32 for yolov8n.
   - For yolov8s it uses WASM: an FP32 yolov8s file would add 43 MB to a deployment that must stay under Vercel Hobby's 100 MB static-file limit (section 9).
+- **Since Phase 7 (user decision 2026-10-06), the default is "Auto":** yolov8s on WebGPU with `shader-f16`, yolov8n everywhere else (WASM, no FP16, WebGPU failure). Resolved in `modelPlan.ts`; the status panel names the model actually loaded. Evidence in §12.
 - **yolov8s is offered as "Accurate".**
   - It costs nothing extra on this GPU (~10 ms per frame).
   - On WASM it runs 53–60 ms, about 17 FPS.
@@ -226,6 +228,19 @@ Candidate work, from the Phase 4 discussion (none built yet):
 - **Cheaper fallback:** the median displacement of confirmed tracks (no image work); unreliable with few tracks or many movers.
 - **Evaluation:** extend the clip runner to record each frame's motion estimate so the offline replay can compare counts and suspected re-counts with and without it. Go/no-go on the numbers.
 - **Not solvable by a global model:** parallax (side-facing car camera, low drone over houses); per-track velocity and the buffered IoU already absorb part of it.
+
+### Outcome (2026-10-06)
+
+Measured on two new full-clip recordings (`p7-webgpu`: YOLOv8n, `p7-webgpu-s`: YOLOv8s; WebGPU, 640, defaults), every variant replaying the same detections; numbers in [clip-counts.md](clip-counts.md) §5. The user chose camera motion, occlusion handling, ground truth on 3 clips, measuring YOLOv8s / input size, and per-class thresholds.
+
+- **Camera-motion compensation: built, measured, removed.** Pure TS in the worker (160 px gray thumbnail, detections masked, coarse-to-fine masked SAD, quality scores). Estimates were plausible, but the clips' cameras move slowly (4–6% of the frame width per second) and smoothly, which the constant-velocity Kalman filter already predicts: totals changed −2…+4 per clip, at full and half rate. It cost 3.5–5.7 ms per frame in the worker (1.2–1.7 ms in Node; estimated 1–2 ms), which lowered the inference rate. Could still help jerky handheld footage; none in the test set.
+- **Occlusion-aware lost handling: built, measured, removed.** ±1–4 per clip in both directions. The `steady.mp4` break it targeted is not an occlusion gap: the person shrinks from 67% to 15% of the frame height in ~2 s and a second track starts while the first still runs (buffered IoU on tracked tracks does not fix it either).
+- **Per-class thresholds: evaluated (replay only), not built.** 50–60% minimums for horse/sheep/cow leave the dog as "horse"; 40% for truck/bus only moves 1–2 counts between classes.
+- **YOLOv8s: default on WebGPU ("Auto").** It labels the `steady.mp4` dog as dog throughout and finds 13 motorcycles on `steady-2` instead of 2; costs: phantom bird/sheep on `moving_drone-2`, 18–22 inference fps instead of 18–28 (M4 Max). Larger input sizes were not measured (the app offers ≤ 640; it needs a schema change first).
+- **The over-count is mostly not ID switches.** The Phase 4 "suspected re-count" heuristic over-reports (one big box "explains" every small new track near it). A stricter metric (`sweepTracker.ts --switches`: new counted track within 1 s, similar size, overlapping when enlarged) finds 8–11 switches among `moving_car`'s 59–63 counts. Track crops of every counted track (`.cache/e2e/track-crops/moving_car/`) show ≈ 43 distinct real objects, ≈ 10–12 concurrent duplicates (part boxes: a truck's cab, two halves of an occluded car, a second box on a bus), ≈ 5 re-counts and 2–3 false positives. The footage holds more vehicles than the Phase 4 estimate (20–30).
+- **Confidence threshold default 35%** (was 25%, Ultralytics' default). The user set 60% after the ground truth, then asked for the best threshold per model: both YOLOv8s and YOLOv8n score best at 35% against the user's counts (25% over-counts duplicates, 60% misses real cars), so one default serves both and no per-model default was built. Evidence: [clip-counts.md](clip-counts.md) §5 "Ground truth".
+- **Contained-duplicate suppression: evaluated, removed (user decision).** A new car/bus/truck box lying ≥ 80% inside a car/bus/truck tracked in the same frame would not start a track. −4 on `moving_car` at 25%, but only −1 at the 35% default (the threshold already drops most part boxes); it can hide a real far vehicle "inside" a near one's box, needed class exceptions (riders, groups of people), and its removals could not be attributed cleanly.
+- **Phase 7 approved 2026-10-06.**
 
 ## 13. Webcam (Phase 5)
 

@@ -1,12 +1,12 @@
 import type { CapturedFrame } from "../input/MediaTypes";
-import type { BackendPreference, ModelSize } from "../settings/SettingsSchema";
+import type { BackendPreference, ModelChoice, ModelSize } from "../settings/SettingsSchema";
 import type { BackendKind } from "./ortRuntime";
 import type { Detection } from "./postprocess";
 
 export interface LoadModelRequest {
     type: "load";
     requestId: number;
-    modelSize: ModelSize;
+    modelSize: ModelChoice;
     backend: BackendPreference;
     numThreads: number;
     /** Absolute URL of public/models/ (with trailing slash). */
@@ -31,6 +31,7 @@ export interface ModelInfo {
     backend: BackendKind;
     threads: number;
     file: string;
+    /** The size actually loaded ("auto" resolved). */
     modelSize: ModelSize;
     /** User-facing fallback explanations (no WebGPU, no FP16, WebGPU failure). */
     notes: string[];

@@ -3,7 +3,10 @@
  * real app (installed Chrome) and records what the tracker saw and counted.
  *
  *   node scripts/e2e/clipCounts.ts [--build] [--headed] [--clips a.mp4,b.mp4] [--fps 30]
- *       [--backend auto|wasm] [--confirm 3] [--lost 1] [--shots 3] [--label name]
+ *       [--backend auto|wasm] [--model auto|n|s] [--input 0|1|2] [--confirm 3] [--lost 1] [--shots 3] [--label name]
+ *
+ * --model picks the model setting (default: the app's Auto = YOLOv8s on WebGPU, YOLOv8n on WASM);
+ * --input picks the input-size option by index (320, 416, 640).
  *
  * Per clip, writes .cache/e2e/clip-counts/<label>/<clip>.json with:
  * - totals shown in the panel at the end (per class),
@@ -42,6 +45,8 @@ const ALL_CLIPS = [
 const CLIPS = option("--clips", ALL_CLIPS.join(",")).split(",");
 const FPS = Number(option("--fps", "30"));
 const BACKEND = option("--backend", "auto");
+const MODEL = option("--model", "auto");
+const INPUT = option("--input", "");
 const CONFIRM = option("--confirm", "");
 const LOST = option("--lost", "");
 const SHOT_EVERY = Number(option("--shots", "3"));
@@ -176,6 +181,8 @@ try {
     await page.setViewport({ width: 1400, height: 1000 });
     await page.goto(server.url, { waitUntil: "load" });
     if (BACKEND === "wasm") await setSelect(page, "backend", 2);
+    if (MODEL !== "auto") await setSelect(page, "modelSize", MODEL === "n" ? 1 : 2); // options: auto, n, s
+    if (INPUT) await setSelect(page, "inputSize", Number(INPUT));
     const model = await waitForModel(page);
     await setRange(page, "maxInferenceFps", FPS);
     if (CONFIRM) await setRange(page, "confirmationFrames", Number(CONFIRM));
@@ -217,7 +224,15 @@ try {
             model,
             backend: debug["Backend"],
             maxFps: FPS,
-            settings: { confirmationFrames: CONFIRM || "default", lostBufferSeconds: LOST || "default" },
+            settings: {
+                modelSize: MODEL,
+                inputSize: await page.$eval(
+                    `[data-setting="inputSize"] select`,
+                    (el) => (el as HTMLSelectElement).selectedOptions[0]?.textContent ?? "?"
+                ),
+                confirmationFrames: CONFIRM || "default",
+                lostBufferSeconds: LOST || "default"
+            },
             inferenceFps: debug["Inference FPS"],
             sampledDropped: debug["Sampled frames dropped"],
             updates: trace.length,

@@ -38,7 +38,7 @@ describe("SettingsSchema", () => {
         expect(sanitizeSetting("confidenceThreshold", 0.33)).toBe(0.35);
         expect(sanitizeSetting("confidenceThreshold", 5)).toBe(0.95);
         expect(sanitizeSetting("confidenceThreshold", -1)).toBe(0.05);
-        expect(sanitizeSetting("confidenceThreshold", Number.NaN)).toBe(0.25);
+        expect(sanitizeSetting("confidenceThreshold", Number.NaN)).toBe(0.35);
         expect(sanitizeSetting("maxInferenceFps", 12.4)).toBe(12);
     });
 
@@ -84,12 +84,12 @@ describe("SettingsStore", () => {
 
         expect(store.isAtDefaults()).toBe(true);
         expect(changes).toHaveLength(1);
-        expect(changes[0]).toMatchObject({ reason: "reset", changed: { modelSize: "n", showTrackIds: false } });
+        expect(changes[0]).toMatchObject({ reason: "reset", changed: { modelSize: "auto", showTrackIds: false } });
     });
 
     it("getSettings returns a copy", () => {
         const store = new SettingsStore();
         store.getSettings().confidenceThreshold = 0.9;
-        expect(store.get("confidenceThreshold")).toBe(0.25);
+        expect(store.get("confidenceThreshold")).toBe(0.35);
     });
 });

@@ -1,5 +1,5 @@
 import type { CapturedFrame } from "../input/MediaTypes";
-import type { BackendPreference, ModelSize } from "../settings/SettingsSchema";
+import type { BackendPreference, ModelChoice } from "../settings/SettingsSchema";
 import type {
     DetectionsReady,
     InferenceRequest,
@@ -36,7 +36,7 @@ export class InferenceClient {
     }
 
     load(
-        options: { modelSize: ModelSize; backend: BackendPreference; modelBaseUrl: string },
+        options: { modelSize: ModelChoice; backend: BackendPreference; modelBaseUrl: string },
         onProgress?: (progress: LoadProgress) => void
     ): Promise<ModelInfo> {
         return this.request(

@@ -124,7 +124,7 @@ async function createSession(plan: ModelPlan, request: LoadModelRequest, manifes
             backend: plan.backend,
             threads: runtime.threads,
             file: plan.file,
-            modelSize: request.modelSize,
+            modelSize: plan.size,
             notes: plan.notes,
             fromCache,
             downloadMs,
