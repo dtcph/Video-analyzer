@@ -1,0 +1,9 @@
+# Pinned toolchain for scripts/export_models.py (see scripts/export-model.md).
+ultralytics==8.4.171
+torch==2.14.1
+torchvision==0.29.1
+onnx==1.23.1
+onnxslim==0.1.97
+onnxruntime==1.30.0
+onnxconverter-common==1.16.0
+numpy==2.5.3

@@ -1,0 +1,10 @@
+old/
+dist/
+node_modules/
+test-vid/
+test-img/
+public/
+package-lock.json
+LICENSE
+.cache/
+.venv-export/

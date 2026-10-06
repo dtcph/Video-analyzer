@@ -1,0 +1,18 @@
+# Archived V1/V2 project (reference only, never committed)
+old/
+
+# Dependencies and build output
+node_modules/
+dist/
+.vite/
+
+# Local test media (large, possibly not redistributable)
+test-vid/
+test-img/
+
+.DS_Store
+*.local
+
+# Model export toolchain and caches (scripts/export-model.md)
+.venv-export/
+.cache/

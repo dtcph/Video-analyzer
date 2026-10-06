@@ -1,0 +1,32 @@
+{
+  "ultralytics": "8.4.171",
+  "onnx": "1.23.1",
+  "license": "AGPL-3.0 (Ultralytics YOLOv8 weights), https://github.com/ultralytics/ultralytics",
+  "weights": {
+    "yolov8n.pt": "f59b3d833e2ff32e194b5bb8e08d211dc7c5bdf144b90d2c8412c47ccfc83b36",
+    "yolov8s.pt": "1f47a78bf100391c2a140b7ac73a1caae18c32779be7d310658112f7ac9aa78a"
+  },
+  "files": {
+    "yolov8n-640-dyn-fp16.onnx": {
+      "model": "yolov8n",
+      "inputSize": 640,
+      "variant": "dyn-fp16",
+      "bytes": 6362894,
+      "sha256": "be40b07116371c561e3a457e64f1e1ef49d406915a3dc717395d7dc67aa4f4cc"
+    },
+    "yolov8n-640-dyn.onnx": {
+      "model": "yolov8n",
+      "inputSize": 640,
+      "variant": "dyn",
+      "bytes": 12665356,
+      "sha256": "5c924dde2c6dd4fdb4e52c15927428bfee14581354a8245e46c9d5339d23185a"
+    },
+    "yolov8s-640-dyn-fp16.onnx": {
+      "model": "yolov8s",
+      "inputSize": 640,
+      "variant": "dyn-fp16",
+      "bytes": 22372270,
+      "sha256": "80c799dd379a917fc408c0d26d5c19bf7d4c105344b0ac2a44ae9257f032da36"
+    }
+  }
+}
