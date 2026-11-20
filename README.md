@@ -53,7 +53,7 @@ The site needs two HTTP headers for multi-threaded WebAssembly (`Cross-Origin-Op
 
 ## Deploy
 
-`npm run build` produces a static site in `dist/` (about 82 MB, mostly the models and the runtime). On **Vercel**: import the repository, keep the "Vite" preset (build `npm run build`, output `dist`), and deploy; [`vercel.json`](vercel.json) sets the two headers above and long-term caching for the hashed assets. Other static hosts work if they can send the headers (Netlify and Cloudflare Pages use a `_headers` file). Checks after deploying: [docs/release-checklist.md](docs/release-checklist.md).
+`npm run build` produces a static site in `dist/` (about 82 MB, mostly the models and the runtime). On **Vercel**: import the repository, keep the "Vite" preset (build `npm run build`, output `dist`), and deploy; [`vercel.json`](vercel.json) sets the two headers above and long-term caching for the hashed assets. Other static hosts work if they can send the headers (Netlify and Cloudflare Pages use a `_headers` file). Checks after deploying: [docs/V3-archive.md](docs/V3-archive.md) §6–7.
 
 ## License and model credit
 

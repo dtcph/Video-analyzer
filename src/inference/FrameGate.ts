@@ -26,7 +26,7 @@ export const EMPTY_FRAME_GATE_STATS: Readonly<FrameGateStats> = {
  * older one is dropped). So a slow device lowers its inference rate instead
  * of building a backlog, and the worker never idles until the next video
  * frame (Phase 8: frames presented unevenly, 17/50 ms apart, were dropped
- * although inference took less than a frame interval; docs/performance.md).
+ * although inference took less than a frame interval; docs/V3-archive.md §3).
  *
  * Pure bookkeeping (in-flight logic ported from the V1 worker client): the
  * gate owns waiting items and hands each dropped one to `discard` (e.g. to

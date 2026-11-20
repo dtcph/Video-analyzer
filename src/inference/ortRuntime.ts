@@ -5,7 +5,7 @@ import plainWasmUrl from "onnxruntime-web/ort-wasm-simd-threaded.wasm?url";
 export type OrtModule = typeof Ort;
 
 /**
- * The two onnxruntime-web builds the app uses (docs/decisions.md, section 1):
+ * The two onnxruntime-web builds the app uses (docs/V3-archive.md §2):
  * - "webgpu": native WebGPU execution provider (`onnxruntime-web/webgpu`, asyncify wasm);
  * - "wasm": CPU only, SIMD + threads (`onnxruntime-web/wasm`, the smallest runtime).
  *
@@ -22,7 +22,7 @@ export interface LoadedRuntime {
     threads: number;
 }
 
-/** Half the logical cores, 1..8: 8 was fastest on 16 cores, 16 was slower (docs/benchmarks.md). */
+/** Half the logical cores, 1..8: 8 was fastest on 16 cores, 16 was slower (docs/V3-archive.md §3). */
 export function defaultThreadCount(hardwareConcurrency: number): number {
     return Math.min(8, Math.max(1, Math.floor(hardwareConcurrency / 2)));
 }

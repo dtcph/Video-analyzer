@@ -3,14 +3,14 @@ import { defineConfig } from "vite";
 
 // Cross-origin isolation (COOP/COEP) enables SharedArrayBuffer, which
 // multi-threaded WASM inference needs. The production host must send the
-// same headers; see docs/decisions.md (Phase 1).
+// same headers; see docs/V3-archive.md §2.
 const crossOriginIsolation = {
     "Cross-Origin-Opener-Policy": "same-origin",
     "Cross-Origin-Embedder-Policy": "require-corp"
 };
 
 /**
- * The commit being built, for the footer's AGPL source link (docs/decisions.md §10):
+ * The commit being built, for the footer's AGPL source link (docs/V3-archive.md §2):
  * Vercel's system variable, else git, else none (the link then points at the repository).
  */
 function sourceCommit(): string {

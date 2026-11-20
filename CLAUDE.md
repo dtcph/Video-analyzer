@@ -4,7 +4,7 @@
 
 Live: https://video-analyzer-sable.vercel.app/
 
-**Resuming? Read [docs/HANDOFF.md](docs/HANDOFF.md) first.** Phases 0–7 approved; **8** (performance pass + release) done, awaiting approval; then the user deploys. Requirements: [BRIEF.md](docs/BRIEF.md); reasoning: [decisions.md](docs/decisions.md); numbers: [performance.md](docs/performance.md), [benchmarks.md](docs/benchmarks.md), [clip-counts.md](docs/clip-counts.md); release: [release-checklist.md](docs/release-checklist.md).
+**V3 is finished and deployed; V4 (branch `V4`) is being defined, no code before the user confirms.** Decisions, numbers, ideas and gotchas of V3: [docs/V3-archive.md](docs/V3-archive.md); original requirements: [BRIEF.md](docs/BRIEF.md).
 
 ## Rules
 
@@ -46,4 +46,4 @@ rendering/  overlay per presented frame;  ui/: panels;  app/: wiring, realtime, 
 
 ## Known limitations
 
-Busy moving footage over-counts (duplicate boxes on one object, re-counts after occlusion); objects that shrink fast (walking away) or leave and return are counted again; small or distant objects are missed; YOLOv8n confuses some classes (dog → horse). Details: [clip-counts.md](docs/clip-counts.md) §5.
+Busy moving footage over-counts (duplicate boxes on one object, re-counts after occlusion); objects that shrink fast (walking away) or leave and return are counted again; small or distant objects are missed; YOLOv8n confuses some classes (dog → horse). A re-count counts as a new impression and is acceptable. Details: [V3-archive.md](docs/V3-archive.md) §4.

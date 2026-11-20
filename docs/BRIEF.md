@@ -1,8 +1,6 @@
 # Object Counter V3: the original brief (verbatim)
 
-Saved from the user's first V3 message so it survives across sessions. This is the **requirements source of truth**. Where a later user decision changed something, it is recorded in [HANDOFF.md](HANDOFF.md) (section "User decisions") and [decisions.md](decisions.md); those override this text.
-
-Notes on status, 2026-10-02: Phases 0–3 are done and committed. The brief's "Phase 0" step list mentions `old/` handling; that is complete.
+Saved from the user's first V3 message. Historical: V3 is finished. Where a later user decision changed something, it is recorded in [V3-archive.md](V3-archive.md), which overrides this text.
 
 ---
 

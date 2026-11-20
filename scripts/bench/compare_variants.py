@@ -1,4 +1,4 @@
-"""Accuracy proxy for the exported ONNX variants (Phase 1, docs/benchmarks.md).
+"""Accuracy proxy for the exported ONNX variants (Phase 1, docs/V3-archive.md §3).
 
 For each frame (test-img/*.jpg plus FRAMES_PER_CLIP evenly spaced frames per
 clip in test-vid/), the reference is Ultralytics' own PyTorch prediction of the

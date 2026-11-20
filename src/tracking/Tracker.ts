@@ -16,7 +16,7 @@ export interface TrackerOptions {
     highScore: number;
 }
 
-/** Internal constants (not settings). Documented in docs/decisions.md §6; overridable for the parameter sweep. */
+/** Internal constants (not settings). Documented in docs/V3-archive.md §2; overridable for the parameter sweep. */
 export interface TrackerTuning {
     /** Detections from here up to `highScore` can only extend existing confirmed tracks (ByteTrack's second stage). */
     lowScore: number;

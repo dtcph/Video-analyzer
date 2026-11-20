@@ -26,7 +26,7 @@ const FP16_FILE: Record<ModelSize, string> = { n: "yolov8n-640-dyn-fp16.onnx", s
 const FP32_FILE_N = "yolov8n-640-dyn.onnx";
 
 /**
- * Chooses backend and model file (docs/decisions.md, sections 1 and 2):
+ * Chooses backend and model file (docs/V3-archive.md §2):
  * WebGPU when wanted and available; FP16 files except on WebGPU adapters
  * without shader-f16, where YOLOv8n uses its FP32 file and YOLOv8s falls back
  * to WASM (no FP32 YOLOv8s is shipped). WASM always uses the FP16 file

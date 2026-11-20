@@ -38,7 +38,7 @@ from onnxruntime.quantization import QuantType, quantize_dynamic
 from ultralytics import YOLO
 
 RELEASE = [
-    # (model, export size, variant); see docs/decisions.md. Dynamic shapes serve every
+    # (model, export size, variant); see docs/V3-archive.md §2. Dynamic shapes serve every
     # input size and rect letterboxing; FP16 everywhere except the FP32 fallback for
     # WebGPU adapters without the shader-f16 feature.
     ("yolov8n", 640, "dyn-fp16"),

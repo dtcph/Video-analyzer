@@ -31,7 +31,7 @@ function plan(name: string): PartialConfig[] {
     ];
     if (name === "smoke") return smoke.map((c) => ({ ...c, warmup: 1, iterations: 3 }));
     if (name === "release") {
-        // The configurations docs/decisions.md ships; run several times to see the spread.
+        // The configurations docs/V3-archive.md §2 ships; run several times to see the spread.
         return [
             { runtime: "webgpu", model: "yolov8n-640-dyn-fp16.onnx" },
             { runtime: "webgpu", model: "yolov8n-640-dyn.onnx" },

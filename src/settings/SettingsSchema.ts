@@ -10,7 +10,7 @@
  * Plain data: no DOM, no inference code.
  *
  * Defaults marked "provisional" are placeholders until measured in the
- * phase that uses them (see docs/decisions.md once it exists).
+ * phase that uses them (see docs/V3-archive.md §2).
  */
 
 export type SettingGroup = "main" | "advanced" | "debug";
@@ -89,7 +89,7 @@ export const SETTINGS_SCHEMA: { readonly [K in SettingKey]: SettingDef<Settings[
         step: 0.05,
         format: "percent",
         // Phase 7 (2026-10-06, was Ultralytics' 0.25): the best threshold against the user's ground truth for both
-        // YOLOv8s and YOLOv8n (docs/clip-counts.md §5); the user's 60% missed real cars, 25% over-counted.
+        // YOLOv8s and YOLOv8n (docs/V3-archive.md §4); the user's 60% missed real cars, 25% over-counted.
         default: 0.35
     },
     modelSize: {
@@ -154,7 +154,7 @@ export const SETTINGS_SCHEMA: { readonly [K in SettingKey]: SettingDef<Settings[
         max: 10,
         step: 1,
         format: "frames",
-        // Phase 4 clip tests (docs/clip-counts.md): 1–2 let flicker inflate totals 1.3–2.5×; 5 drops brief objects at low rates.
+        // Phase 4 clip tests (docs/V3-archive.md §4): 1–2 let flicker inflate totals 1.3–2.5×; 5 drops brief objects at low rates.
         default: 3
     },
     lostBufferSeconds: {
@@ -167,7 +167,7 @@ export const SETTINGS_SCHEMA: { readonly [K in SettingKey]: SettingDef<Settings[
         max: 5,
         step: 0.5,
         format: "seconds",
-        // Phase 4 clip tests (docs/clip-counts.md): fewer re-counts than 1 s on every clip; 3 s adds nothing.
+        // Phase 4 clip tests (docs/V3-archive.md §4): fewer re-counts than 1 s on every clip; 3 s adds nothing.
         default: 2
     },
     backend: {

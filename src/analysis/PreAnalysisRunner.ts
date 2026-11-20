@@ -45,10 +45,10 @@ export class UndecodableVideoError extends Error {
  * next frame is decoded while the current one is detected, and nothing is
  * skipped except by the sampling cap (max inference rate, as in realtime).
  * Two frames are kept in flight, so the worker preprocesses the next one
- * while the GPU runs the current one (Phase 8, docs/performance.md); results
+ * while the GPU runs the current one (Phase 8, docs/V3-archive.md §3); results
  * are stored in sample order.
  * No DOM. Measured ~100–110 samples/s on the M4 Max with WebGPU for 720p to
- * 4K clips (docs/decisions.md §14), ~25× faster than seeking a <video>.
+ * 4K clips (docs/V3-archive.md §2), ~25× faster than seeking a <video>.
  *
  * Results go into an AnalysisCache and a TrackingRun. A run can be stopped
  * between samples and resumed later from the last cached sample.

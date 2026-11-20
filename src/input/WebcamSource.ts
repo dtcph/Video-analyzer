@@ -19,7 +19,7 @@ export interface CameraMode {
  * A live camera (getUserMedia), shown by the shared VideoPlayer. Frames are
  * captured like video files: `new VideoFrame(video)` inside
  * requestVideoFrameCallback (measured as fast as MediaStreamTrackProcessor
- * here, and it gives exactly the presented frame; docs/decisions.md §13).
+ * here, and it gives exactly the presented frame; docs/V3-archive.md §2).
  * Media time is the stream's clock in seconds; it keeps running while the
  * element is paused, which RealtimeVideo turns into a tracker skip.
  * dispose() stops every track, which releases the camera.

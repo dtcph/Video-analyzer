@@ -24,7 +24,7 @@ import { LETTERBOX_FILL, letterboxTransform, rgbaToPlanarRgb } from "./preproces
  * No DOM. Requests are processed strictly in order; a frame's preprocessing
  * runs as soon as it arrives, so on WebGPU it overlaps the previous frame's
  * inference (the GPU runs while this thread awaits it; Phase 8,
- * docs/performance.md).
+ * docs/V3-archive.md §3).
  */
 
 interface Loaded {
@@ -36,7 +36,7 @@ interface Loaded {
 let loaded: Loaded | null = null;
 const runtimes = new Map<string, LoadedRuntime>();
 /**
- * Two preprocessing canvases (measured, docs/benchmarks.md Phase 3):
+ * Two preprocessing canvases (measured, docs/V3-archive.md §3):
  * - "gpu" for VideoFrames, which live on the GPU: scaling happens there and only
  *   the small letterboxed result is read back (4K: 3–8 ms instead of ~15 ms);
  * - "cpu" (willReadFrequently) for ImageBitmaps from still images, which live in
