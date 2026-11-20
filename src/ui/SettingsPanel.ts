@@ -1,6 +1,7 @@
 import type { AnySettingDef, NumberDef, SettingGroup, SettingKey } from "../settings/SettingsSchema";
 import { SETTING_KEYS, settingDef } from "../settings/SettingsSchema";
 import type { SettingsStore } from "../settings/SettingsStore";
+import { iconSvg } from "./icons";
 
 /**
  * The settings panel, generated entirely from SettingsSchema:
@@ -45,7 +46,9 @@ export class SettingsPanel {
         this.resetButton = document.createElement("button");
         this.resetButton.type = "button";
         this.resetButton.className = "settings-reset-button";
-        this.resetButton.textContent = "Reset to defaults";
+        this.resetButton.innerHTML = iconSvg("reset");
+        this.resetButton.setAttribute("aria-label", "Reset to defaults");
+        this.resetButton.title = "Reset to defaults";
         this.resetButton.addEventListener("click", () => this.store.resetToDefaults());
 
         this.element.append(main, advanced.details, debug.details, this.resetButton);

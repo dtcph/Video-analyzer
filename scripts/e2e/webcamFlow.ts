@@ -8,7 +8,8 @@
  *   node scripts/e2e/webcamFlow.ts [--build] [--headed] [--backend wasm]
  *
  * Checks: start, live counting, device picker + switch (totals kept), pause
- * (Current frame, totals frozen, tracks continue after resume), stop (camera
+ * (totals frozen, tracks continue after resume; the "Current frame" checks are
+ * disabled in V4), stop (camera
  * released, totals kept), restart (counting continues), disconnect, a file
  * load releasing the camera, Reset, and every error message (permission
  * denied for real in a second browser without auto-accept; the other
@@ -18,7 +19,17 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import type { Browser, Page } from "puppeteer-core";
-import { collectErrors, debugText, launchChrome, serveApp, setSelect, uploadFile, waitForModel } from "./harness.ts";
+import {
+    backToStart,
+    collectErrors,
+    debugText,
+    launchChrome,
+    resetCounts,
+    serveApp,
+    setSelect,
+    uploadFile,
+    waitForModel
+} from "./harness.ts";
 
 const argv = process.argv.slice(2);
 const args = new Set(argv);
@@ -31,6 +42,8 @@ const sleep = (ms: number) => new Promise((done) => setTimeout(done, ms));
 interface TraceEntry {
     t: number;
     ids: number[];
+    /** The tracker dropped all tracks before this update (time went backwards). */
+    reset: boolean;
 }
 
 declare global {
@@ -59,9 +72,17 @@ async function state(page: Page) {
         return {
             webcam: panel.dataset.state,
             status: (panel.querySelector(".webcam-status") as HTMLElement).textContent,
-            error: visible(".webcam-error") ? (panel.querySelector(".webcam-error") as HTMLElement).textContent : "",
-            devices: [...panel.querySelectorAll(".webcam-device option")].map((o) => o.textContent),
-            pickerVisible: visible(".webcam-device"),
+            // On the start screen a failed camera start shows its message under the two buttons.
+            error:
+                document.documentElement.dataset.view === "landing"
+                    ? visible(".choose-error")
+                        ? (document.querySelector(".choose-error") as HTMLElement).textContent
+                        : ""
+                    : visible(".webcam-error")
+                      ? (panel.querySelector(".webcam-error") as HTMLElement).textContent
+                      : "",
+            devices: [...document.querySelectorAll(".webcam-device option")].map((o) => o.textContent),
+            pickerVisible: visible(".webcam-device-picker"),
             stageVisible: visible(".media-stage"),
             hasStream: video.srcObject !== null,
             paused: video.paused,
@@ -69,9 +90,10 @@ async function state(page: Page) {
             totals,
             total: Object.values(totals).reduce((a, b) => a + b, 0),
             totalText: (document.querySelector(".counts-total") as HTMLElement).textContent?.trim() ?? "",
-            currentVisible: visible(".counts-current"),
-            current: (document.querySelector(".counts-current") as HTMLElement).textContent?.trim() ?? "",
-            resetVisible: visible(".counts-reset")
+            // Current frame (disabled in V4):
+            // currentVisible: visible(".counts-current"),
+            // current: (document.querySelector(".counts-current") as HTMLElement).textContent?.trim() ?? "",
+            resetVisible: visible(".result-reset")
         };
     });
 }
@@ -87,10 +109,12 @@ async function instrument(page: Page): Promise<void> {
             const detail = (event as CustomEvent).detail as {
                 mediaTime: number;
                 tracks: { id: number; state: string }[];
+                reset: boolean;
             };
             window.__camTrace.push({
                 t: detail.mediaTime,
-                ids: detail.tracks.filter((t) => t.state === "confirmed").map((t) => t.id)
+                ids: detail.tracks.filter((t) => t.state === "confirmed").map((t) => t.id),
+                reset: detail.reset
             });
         });
         const video = document.querySelector("video") as HTMLVideoElement;
@@ -110,7 +134,9 @@ async function waitWebcam(page: Page, wanted: string, timeout = 20_000): Promise
 }
 
 async function startCamera(page: Page): Promise<void> {
-    await page.click(".webcam-start");
+    // From the start screen the round camera button; after a stop, the Start button under the analysis box.
+    const onStartScreen = await page.evaluate(() => document.documentElement.dataset.view === "landing");
+    await page.click(onStartScreen ? ".choose-camera" : ".webcam-start");
     await waitWebcam(page, "live");
 }
 
@@ -136,6 +162,9 @@ if (!existsSync(CAMERA_FILE)) {
         "-loglevel",
         "error",
         "-y",
+        // The fake camera loops the file: a loop point inside a test is a scene cut. 4 × 15.7 s outlasts a run.
+        "-stream_loop",
+        "3",
         "-i",
         "test-vid/steady-2.mp4",
         "-vf",
@@ -184,32 +213,109 @@ try {
         liveTotals: live.totals
     });
     check(
-        "live: stream shown, status, totals grow, no Current frame",
-        live.webcam === "live" && live.hasStream && Boolean(live.status) && live.total > 0 && !live.currentVisible,
+        "live: stream shown, status, totals grow",
+        live.webcam === "live" && live.hasStream && Boolean(live.status) && live.total > 0,
         { status: live.status, totals: live.totals }
     );
     await (await page.$(".media-stage"))?.screenshot({ path: `${OUT}/webcam__live.png` });
 
-    // Pause: Current frame for the frozen picture, totals frozen.
+    // Result treemap (V4): follows the live totals while the dialog is open; opening and closing it
+    // (button, Esc, click outside) never interrupt tracking or the camera.
+    const treemapSnapshot = () =>
+        page.evaluate(() => ({
+            treemap: [...document.querySelectorAll(".treemap-tile")].reduce(
+                (sum, tile) => sum + Number((tile as HTMLElement).dataset.count),
+                0
+            ),
+            panel: [...document.querySelectorAll(".counts-total .counts-value")].reduce(
+                (sum, value) => sum + Number(value.textContent),
+                0
+            )
+        }));
+    const panelTotal = async () => (await treemapSnapshot()).panel;
+    const trackerUpdates = () => page.evaluate(() => window.__camTrace.length);
+    const updatesBeforeOpen = await trackerUpdates();
+    await page.click(".result-open");
+    await page.waitForSelector(".result-overlay.is-open");
+    await sleep(300); // the slide-in is nearly over
+    // The treemap redraws at most every 250 ms, so it may lag the text totals a little: its sum must lie
+    // between the totals read before and after (the totals only grow).
+    const openedBefore = await panelTotal();
+    await sleep(500);
+    const opened = await treemapSnapshot();
+    const windowBox = await page.$eval(".result-dialog", (el) => {
+        const r = el.getBoundingClientRect();
+        return { w: r.width, h: r.height, top: r.top, vw: innerWidth, vh: innerHeight };
+    });
+    await sleep(4500);
+    const stillOpenBefore = await panelTotal();
+    await sleep(500);
+    const stillOpen = await treemapSnapshot();
+    await page.screenshot({ path: `${OUT}/webcam__result.png` });
+    const updatesWhileOpen = await trackerUpdates();
+    await page.keyboard.press("Escape");
+    await page.waitForSelector('.result-overlay[data-state="closed"]');
+    await sleep(700); // the slide-out has finished
+    const overlayHidden = await page.$eval(".result-overlay", (el) => getComputedStyle(el).visibility === "hidden");
+    await sleep(1500);
+    const updatesAfterClose = await trackerUpdates();
+    // Second round: closed by a click outside the window (top-left corner of the backdrop).
+    await page.click(".result-open");
+    await page.waitForSelector(".result-overlay.is-open");
+    await sleep(700);
+    await page.mouse.click(10, 10);
+    await page.waitForSelector('.result-overlay[data-state="closed"]');
+    await sleep(700);
+    const afterOutsideClick = await state(page);
+    check(
+        "result treemap: ~85% window, matches the totals, grows live; tracking and camera run through open, Esc and outside click",
+        opened.treemap > 0 &&
+            openedBefore <= opened.treemap &&
+            opened.treemap <= opened.panel &&
+            stillOpenBefore <= stillOpen.treemap &&
+            stillOpen.treemap <= stillOpen.panel &&
+            stillOpen.treemap > opened.treemap &&
+            Math.abs(windowBox.w - 0.85 * windowBox.vw) < 2 &&
+            Math.abs(windowBox.h - 0.85 * windowBox.vh) < 2 &&
+            updatesWhileOpen > updatesBeforeOpen &&
+            updatesAfterClose > updatesWhileOpen &&
+            overlayHidden &&
+            afterOutsideClick.webcam === "live" &&
+            afterOutsideClick.hasStream,
+        {
+            openedBefore,
+            opened,
+            stillOpenBefore,
+            stillOpen,
+            windowBox,
+            updatesBeforeOpen,
+            updatesWhileOpen,
+            updatesAfterClose,
+            overlayHidden
+        }
+    );
+
+    // Pause: totals frozen. (Current frame, disabled in V4: the counts and boxes of the frozen picture.)
     const beforePause = await page.evaluate(() => window.__camTrace.at(-1) ?? null);
     await page.click(".webcam-pause");
     await waitWebcam(page, "paused");
-    await page.waitForFunction(() => {
-        const section = document.querySelector(".counts-current") as HTMLElement;
-        return !section.hidden && !section.textContent?.includes("Detecting");
-    });
+    // Lets the frame that was in flight at the pause finish; it may still add to the totals.
+    // (This wait counts toward the 3 s pause below, which the "resume" check is calibrated for.)
+    await sleep(800);
+    // await page.waitForFunction(() => {
+    //     const section = document.querySelector(".counts-current") as HTMLElement;
+    //     return !section.hidden && !section.textContent?.includes("Detecting");
+    // });
     const paused1 = await state(page);
-    const exact = await page.$eval(".media-stage", (stage) => {
-        const { drawTime, resultTime } = (stage as HTMLElement).dataset;
-        return resultTime !== "" && Math.abs(Number(drawTime) - Number(resultTime)) < 0.002;
-    });
-    await sleep(3000);
+    // const exact = await page.$eval(".media-stage", (stage) => {
+    //     const { drawTime, resultTime } = (stage as HTMLElement).dataset;
+    //     return resultTime !== "" && Math.abs(Number(drawTime) - Number(resultTime)) < 0.002;
+    // });
+    await sleep(2200);
     const paused2 = await state(page);
-    check(
-        "pause: Current frame of the frozen picture, totals frozen",
-        paused1.currentVisible && exact && paused1.total === paused2.total && paused2.paused,
-        { current: paused1.current, exact, totals: [paused1.total, paused2.total] }
-    );
+    check("pause: totals frozen", paused1.total === paused2.total && paused2.paused, {
+        totals: [paused1.total, paused2.total]
+    });
 
     // Resume after the 3 s pause: confirmed tracks continue with their IDs (the paused time is skipped).
     const traceLength = await page.evaluate(() => window.__camTrace.length);
@@ -220,7 +326,15 @@ try {
     const firstAfter = afterResume[0];
     const kept = beforePause && firstAfter ? beforePause.ids.filter((id) => firstAfter.ids.includes(id)) : [];
     const gap = beforePause && firstAfter ? firstAfter.t - beforePause.t : null;
-    measured.resume = { confirmedBefore: beforePause?.ids.length, keptAfter: kept.length, streamGapSeconds: gap };
+    measured.resume = {
+        confirmedBefore: beforePause?.ids.length,
+        keptAfter: kept.length,
+        streamGapSeconds: gap,
+        // The first updates after the resume: stream time, confirmed tracks, and whether the tracker dropped all.
+        firstUpdates: afterResume
+            .slice(0, 3)
+            .map((e) => ({ t: Number(e.t.toFixed(2)), ids: e.ids.length, reset: e.reset }))
+    };
     check(
         "resume: ≥ 25% of confirmed tracks keep their IDs across a 3 s pause (traffic keeps moving; without the skip: 10%)",
         Boolean(
@@ -254,7 +368,7 @@ try {
     });
 
     // Reset counts while live.
-    await page.click(".counts-reset");
+    await resetCounts(page);
     await sleep(200);
     const reset = await state(page);
     check("Reset counts clears totals while live", reset.total < restarted.total, {
@@ -291,7 +405,8 @@ try {
         ["OverconstrainedError", "not available any more"]
     ]) {
         await injectFailure(page, name);
-        await page.click(".webcam-start");
+        await backToStart(page);
+        await page.click(".choose-camera");
         await waitWebcam(page, "off");
         const failed = await state(page);
         check(
@@ -348,7 +463,7 @@ try {
     const denyPage = await denyBrowser.newPage();
     const denyErrors = collectErrors(denyPage);
     await denyPage.goto(server.url, { waitUntil: "load" });
-    await denyPage.click(".webcam-start");
+    await denyPage.click(".choose-camera");
     await waitWebcam(denyPage, "off", 30_000);
     const denied = await state(denyPage);
     check("permission denied (real prompt dismissed): message shown", denied.error.includes("denied"), denied.error);

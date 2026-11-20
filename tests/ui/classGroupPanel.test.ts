@@ -53,7 +53,7 @@ describe("ClassGroupPanel", () => {
 });
 
 describe("CountsPanel", () => {
-    it("renders a summary and one row per class, and hides the current-frame section unless given", () => {
+    it("renders a summary and one row per class", () => {
         const panel = new CountsPanel();
         panel.render({
             totalTitle: "Total (this image)",
@@ -64,8 +64,8 @@ describe("CountsPanel", () => {
         });
         expect(panel.element.querySelector(".counts-summary")?.textContent).toBe("4 cars, 1 person");
         expect(panel.element.querySelectorAll(".counts-total .counts-row")).toHaveLength(2);
-        expect((panel.element.querySelector(".counts-current") as HTMLElement).hidden).toBe(true);
-        expect((panel.element.querySelector(".counts-reset") as HTMLElement).hidden).toBe(true);
+        // Current frame (disabled in V4):
+        // expect((panel.element.querySelector(".counts-current") as HTMLElement).hidden).toBe(true);
     });
 
     it("shows messages for empty and pending states", () => {

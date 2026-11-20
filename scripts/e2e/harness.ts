@@ -100,3 +100,23 @@ export async function uploadFile(page: Page, path: string): Promise<void> {
     if (!input) throw new Error("no upload input");
     await (input as unknown as { uploadFile(path: string): Promise<void> }).uploadFile(path);
 }
+
+const wait = (ms: number) => new Promise((done) => setTimeout(done, ms));
+
+/** Reset counts lives in the analysis result dialog: open it, press the button, close it with Escape. */
+export async function resetCounts(page: Page): Promise<void> {
+    await page.click(".result-open");
+    await page.waitForSelector(".result-overlay.is-open");
+    await wait(600); // the slide-in has finished
+    await page.click(".result-reset");
+    await page.keyboard.press("Escape");
+    await page.waitForSelector('.result-overlay[data-state="closed"]');
+    await wait(600);
+}
+
+/** The arrow on the analysis page: back to the start screen (nothing to do when already there). */
+export async function backToStart(page: Page): Promise<void> {
+    if (await page.evaluate(() => document.documentElement.dataset.view === "landing")) return;
+    await page.click(".back-link");
+    await page.waitForFunction(() => document.documentElement.dataset.view === "landing");
+}

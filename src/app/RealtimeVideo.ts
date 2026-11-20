@@ -58,8 +58,9 @@ export interface RealtimeStats extends FrameGateStats {
  *   device gets a lower inference rate, never a lagging backlog;
  * - each result is tagged with its frame's media time and held on screen
  *   (DetectionHold) until a newer one arrives;
- * - on pause, after a seek while paused, and at the end, the displayed frame
- *   itself is detected (never dropped), so "Current frame" counts match it;
+ * - ("Current frame", disabled in V4: on pause, after a seek while paused, and
+ *   at the end, the displayed frame itself was detected, never dropped; the
+ *   code is kept commented out below);
  * - a seek clears the shown boxes at once and discards in-flight results
  *   from before the seek (epoch counter);
  * - results of frames sampled while playing go to the tracker
@@ -103,7 +104,7 @@ export class RealtimeVideo {
                     if (source.live && state === "paused" && this.pausedAt === null) {
                         this.pausedAt = source.currentTime();
                     }
-                    if (state === "paused" || state === "ready") void this.detectDisplayedFrame();
+                    // Current frame (disabled in V4): if (state === "paused" || state === "ready") void this.detectDisplayedFrame();
                 }
             })
         );
@@ -114,14 +115,15 @@ export class RealtimeVideo {
             this.deps.onSeek();
             this.deps.onUpdate();
         };
-        const onSeeked = () => {
-            if (video.paused) void this.detectDisplayedFrame();
-        };
+        // Current frame (disabled in V4):
+        // const onSeeked = () => {
+        //     if (video.paused) void this.detectDisplayedFrame();
+        // };
         video.addEventListener("seeking", onSeeking);
-        video.addEventListener("seeked", onSeeked);
+        // video.addEventListener("seeked", onSeeked);
         this.disposers.push(() => {
             video.removeEventListener("seeking", onSeeking);
-            video.removeEventListener("seeked", onSeeked);
+            // video.removeEventListener("seeked", onSeeked);
         });
     }
 
@@ -134,15 +136,16 @@ export class RealtimeVideo {
         return this.hold.at(displayTime);
     }
 
-    /** True once the paused frame's own detections are available. */
-    hasExactResult(): boolean {
-        return this.hold.isExact(this.source.currentTime());
-    }
-
-    /** Re-runs detection on the paused frame (e.g. after an IoU or input-size change). */
-    redetect(): void {
-        if (this.source.element.paused) void this.detectDisplayedFrame();
-    }
+    // Current frame (disabled in V4):
+    // /** True once the paused frame's own detections are available. */
+    // hasExactResult(): boolean {
+    //     return this.hold.isExact(this.source.currentTime());
+    // }
+    //
+    // /** Re-runs detection on the paused frame (e.g. after an IoU or input-size change). */
+    // redetect(): void {
+    //     if (this.source.element.paused) void this.detectDisplayedFrame();
+    // }
 
     stats(): RealtimeStats {
         return { ...this.gate.getStats(), effectiveFps: this.meter.rate(), lastResult: this.lastResult };
@@ -167,37 +170,38 @@ export class RealtimeVideo {
         );
     }
 
-    private async detectDisplayedFrame(): Promise<void> {
-        const epoch = this.epoch;
-        const video = this.source.element;
-        // Right after loading there may be metadata but no decoded frame yet.
-        if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
-            await new Promise<void>((resolve) => video.addEventListener("loadeddata", () => resolve(), { once: true }));
-        }
-        if (!(await this.gate.acquireWhenIdle())) return;
-        if (epoch !== this.epoch || !video.paused || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
-            this.finish();
-            return;
-        }
-        const mediaTime = this.source.currentTime();
-        let frame: CapturedFrame;
-        try {
-            frame = await this.source.captureDisplayedFrame();
-        } catch (error) {
-            this.finish();
-            this.deps.onError(
-                `Could not capture the video frame: ${error instanceof Error ? error.message : String(error)}`
-            );
-            return;
-        }
-        if (epoch !== this.epoch) {
-            // A seek happened while waiting for the frame.
-            frame.close();
-            this.finish();
-            return;
-        }
-        await this.run({ frame, mediaTime, epoch }, false);
-    }
+    // Current frame (disabled in V4):
+    // private async detectDisplayedFrame(): Promise<void> {
+    //     const epoch = this.epoch;
+    //     const video = this.source.element;
+    //     // Right after loading there may be metadata but no decoded frame yet.
+    //     if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+    //         await new Promise<void>((resolve) => video.addEventListener("loadeddata", () => resolve(), { once: true }));
+    //     }
+    //     if (!(await this.gate.acquireWhenIdle())) return;
+    //     if (epoch !== this.epoch || !video.paused || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+    //         this.finish();
+    //         return;
+    //     }
+    //     const mediaTime = this.source.currentTime();
+    //     let frame: CapturedFrame;
+    //     try {
+    //         frame = await this.source.captureDisplayedFrame();
+    //     } catch (error) {
+    //         this.finish();
+    //         this.deps.onError(
+    //             `Could not capture the video frame: ${error instanceof Error ? error.message : String(error)}`
+    //         );
+    //         return;
+    //     }
+    //     if (epoch !== this.epoch) {
+    //         // A seek happened while waiting for the frame.
+    //         frame.close();
+    //         this.finish();
+    //         return;
+    //     }
+    //     await this.run({ frame, mediaTime, epoch }, false);
+    // }
 
     private async run({ frame, mediaTime, epoch }: SampledFrame, sampled: boolean): Promise<void> {
         try {

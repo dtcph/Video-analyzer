@@ -145,7 +145,7 @@ try {
     // 5. Unsupported file: a clear error, nothing loaded.
     writeFileSync(`${OUT}/not-media.txt`, "hello");
     await uploadFile(page, resolve(OUT, "not-media.txt"));
-    report.unsupportedFileError = await page.$eval(".upload-error", (el) =>
+    report.unsupportedFileError = await page.$eval(".analysis-error", (el) =>
         (el as HTMLElement).hidden ? "" : el.textContent
     );
 

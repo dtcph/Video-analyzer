@@ -7,24 +7,28 @@ export interface CountsView {
     totalTitle: string;
     /** null = nothing analyzed yet; shows `message` instead. */
     total: readonly ClassCount[] | null;
-    /** Current-frame section: shown only when given (paused video). null shows `currentMessage`. */
-    current?: readonly ClassCount[] | null;
-    currentMessage?: string;
+    // Current frame (disabled in V4): section shown only when given (paused video). null shows `currentMessage`.
+    // current?: readonly ClassCount[] | null;
+    // currentMessage?: string;
     message?: string;
     busy?: boolean;
-    /** Reset counts button (video and webcam, Phase 4). */
+    /** Reset counts is offered (video and webcam): the result dialog shows its button. */
     canReset?: boolean;
 }
 
-/** The stats panel next to the media: per-class counts with the class colors. */
+/**
+ * The per-class counts as text with the class colors. It is the source of the
+ * totals shown elsewhere (`onRender`) and stays on the page as a screen-reader
+ * live region, visually hidden: the visible summary is the result dialog's treemap.
+ */
 export class CountsPanel {
     readonly element: HTMLElement;
     private readonly totalTitle: HTMLElement;
     private readonly totalBody: HTMLElement;
-    private readonly currentSection: HTMLElement;
-    private readonly currentBody: HTMLElement;
-    private readonly resetButton: HTMLButtonElement;
-    private onResetHandler: (() => void) | null = null;
+    // Current frame (disabled in V4):
+    // private readonly currentSection: HTMLElement;
+    // private readonly currentBody: HTMLElement;
+    private readonly renderListeners: ((view: CountsView) => void)[] = [];
 
     constructor() {
         this.element = document.createElement("section");
@@ -35,18 +39,18 @@ export class CountsPanel {
                 <h2 class="panel-title counts-total-title">Total</h2>
                 <div class="counts-total"></div>
             </div>
+            <!-- Current frame (disabled in V4):
             <div class="counts-section counts-current" hidden>
                 <h2 class="panel-title">Current frame</h2>
                 <div class="counts-current-body"></div>
             </div>
-            <button type="button" class="counts-reset" hidden>Reset counts</button>
+            -->
         `;
         this.totalTitle = this.element.querySelector(".counts-total-title") as HTMLElement;
         this.totalBody = this.element.querySelector(".counts-total") as HTMLElement;
-        this.currentSection = this.element.querySelector(".counts-current") as HTMLElement;
-        this.currentBody = this.element.querySelector(".counts-current-body") as HTMLElement;
-        this.resetButton = this.element.querySelector(".counts-reset") as HTMLButtonElement;
-        this.resetButton.addEventListener("click", () => this.onResetHandler?.());
+        // Current frame (disabled in V4):
+        // this.currentSection = this.element.querySelector(".counts-current") as HTMLElement;
+        // this.currentBody = this.element.querySelector(".counts-current-body") as HTMLElement;
         this.render({
             totalTitle: "Total",
             total: null,
@@ -54,8 +58,9 @@ export class CountsPanel {
         });
     }
 
-    onReset(handler: () => void): void {
-        this.onResetHandler = handler;
+    /** Called with every rendered view, e.g. to feed the result treemap with `view.total` (null: nothing analyzed yet). */
+    onRender(listener: (view: CountsView) => void): void {
+        this.renderListeners.push(listener);
     }
 
     render(view: CountsView): void {
@@ -64,9 +69,10 @@ export class CountsPanel {
         this.totalTitle.textContent = view.totalTitle;
         this.element.classList.toggle("is-busy", Boolean(view.busy));
         fillCounts(this.totalBody, view.total, view.message);
-        this.currentSection.hidden = view.current === undefined;
-        if (view.current !== undefined) fillCounts(this.currentBody, view.current, view.currentMessage);
-        this.resetButton.hidden = !view.canReset;
+        // Current frame (disabled in V4):
+        // this.currentSection.hidden = view.current === undefined;
+        // if (view.current !== undefined) fillCounts(this.currentBody, view.current, view.currentMessage);
+        for (const listener of this.renderListeners) listener(view);
     }
 }
 

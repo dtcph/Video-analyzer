@@ -1,4 +1,3 @@
-import { trackingKey } from "../analysis/analysisKeys";
 import { countByClass } from "../counting/countDetections";
 import { TotalCounter } from "../counting/TotalCounter";
 import type { LoadProgress, ModelInfo, StageTimings } from "../inference/InferenceMessages";
@@ -26,16 +25,15 @@ import { ClassGroupPanel } from "../ui/ClassGroupPanel";
 import { CountsPanel } from "../ui/CountsPanel";
 import { DebugReadout } from "../ui/DebugReadout";
 import { ModelStatusPanel } from "../ui/ModelStatusPanel";
+import { ResultDialog } from "../ui/ResultDialog";
+import { SettingsDialog } from "../ui/SettingsDialog";
+import { iconSvg } from "../ui/icons";
+import { createSpotlight } from "../ui/spotlight";
 import { PlaybackControls } from "../ui/PlaybackControls";
 import { SettingsPanel } from "../ui/SettingsPanel";
 import { UploadPanel } from "../ui/UploadPanel";
 import { WebcamPanel } from "../ui/WebcamPanel";
-import type { AnalysisMode, AnalysisPanelView } from "../ui/AnalysisPanel";
-import { AnalysisPanel } from "../ui/AnalysisPanel";
-import { formatClock } from "../utils/format";
-import type { CurrentAnalysisSettings } from "./PreAnalysisSession";
-import { PreAnalysisSession } from "./PreAnalysisSession";
-import { trackIdsFor } from "../tracking/association";
+// Current frame (disabled in V4): import { trackIdsFor } from "../tracking/association";
 import { DEFAULT_TUNING, Tracker } from "../tracking/Tracker";
 import type { Size } from "../utils/geometry";
 import { RealtimeVideo } from "./RealtimeVideo";
@@ -57,9 +55,11 @@ const MAX_TRACK_DISPLAY_AGE = 0.5;
 const CLASS_CHANGE_NOTE = "Class changes apply from now on; earlier counts are not recomputed.";
 
 const EMPTY_MESSAGE = "Load an image or video, or start the camera, to start counting.";
-const LOCKED_REASON = "Playback unlocks when the pre-analysis is complete.";
 
-const CAMERA_STOPPED_MESSAGE = "Camera stopped. Start it again to continue counting, or press Reset counts.";
+const CAMERA_STOPPED_MESSAGE =
+    "Camera stopped. Start it again to continue counting, or reset the counts in the analysis result.";
+
+type View = "landing" | "analysis";
 
 /**
  * Top-level wiring: builds the DOM shell, owns the services and connects
@@ -68,13 +68,10 @@ const CAMERA_STOPPED_MESSAGE = "Camera stopped. Start it again to continue count
  * Images: one detection, counts are the total. Videos: realtime detection
  * alongside playback (RealtimeVideo); frames sampled while playing feed the
  * tracker, whose newly confirmed tracks are added to the totals (Phase 4).
- * While playing, boxes are the tracks predicted at the displayed time; while
- * paused, the paused frame's own detections ("Current frame" counts).
+ * Boxes are the tracks predicted at the displayed time (the paused frame's own
+ * detections and the "Current frame" counts are disabled in V4, see the commented code).
  * Webcam (Phase 5): the same realtime pipeline on a live stream; stopping
  * releases the camera and keeps the totals until Reset or a file is loaded.
- * Pre-analysis (Phase 6, video files): PreAnalysisSession decodes and detects
- * every sample first; playback stays locked until it is complete, then boxes,
- * totals and "Current frame" come from the cache.
  */
 export class App {
     private readonly settings = new SettingsStore();
@@ -84,11 +81,12 @@ export class App {
     );
     private readonly playbackControls = new PlaybackControls();
     private readonly webcamPanel = new WebcamPanel();
-    private readonly analysisPanel = new AnalysisPanel();
     private readonly settingsPanel = new SettingsPanel(this.settings);
     private readonly classPanel = new ClassGroupPanel(this.classes);
     private readonly countsPanel = new CountsPanel();
+    private readonly resultDialog = new ResultDialog();
     private readonly modelStatus = new ModelStatusPanel();
+    private readonly settingsDialog = new SettingsDialog([this.settingsPanel.element, this.webcamPanel.devicePicker]);
     private readonly debugReadout = new DebugReadout();
     private readonly detectionLayer = new DetectionLayer();
     private readonly tracker = new Tracker({
@@ -99,6 +97,13 @@ export class App {
     private readonly totals = new TotalCounter();
     private lastTrackerMs = 0;
 
+    private landingEl!: HTMLElement;
+    private analysisEl!: HTMLElement;
+    private chooseEl!: HTMLElement;
+    private chooseError!: HTMLElement;
+    private analysisError!: HTMLElement;
+    private chooseCameraButton!: HTMLButtonElement;
+    private placeholderEl!: HTMLElement;
     private stageEl!: HTMLElement;
     private videoEl!: HTMLVideoElement;
     private imageEl!: HTMLImageElement;
@@ -111,11 +116,6 @@ export class App {
     private modelGeneration = 0;
 
     private mediaKind: InputKind | null = null;
-    /** Video files: realtime (default) or pre-analysis. */
-    private analysisMode: AnalysisMode = "realtime";
-    private videoFile: File | null = null;
-    private preAnalysis: PreAnalysisSession | null = null;
-    private preAnalysisRenderPending = false;
     /** Invalidates a camera start that finishes after another start, a stop or a file load. */
     private cameraGeneration = 0;
     private source: InputSource | null = null;
@@ -128,17 +128,20 @@ export class App {
 
     constructor(private readonly root: HTMLElement) {
         this.buildLayout();
+        // The result treemap follows every totals update, whichever input produced it.
+        this.countsPanel.onRender((view) => {
+            this.resultDialog.update(view.total);
+            this.resultDialog.setCanReset(view.canReset === true);
+        });
+        this.resultDialog.onReset(() => this.resetCounts());
         this.wireMedia();
         this.wireSettings();
         this.wireKeyboard();
+        this.wireDropGuard();
         this.loadModel();
     }
 
     private buildLayout(): void {
-        const header = document.createElement("header");
-        header.className = "app-header";
-        header.innerHTML = `<h1 class="app-title">Object Counter</h1>`;
-
         this.stageEl = document.createElement("div");
         this.stageEl.className = "media-stage";
         this.stageEl.hidden = true;
@@ -149,44 +152,152 @@ export class App {
         `;
         this.videoEl = this.stageEl.querySelector(".media-video") as HTMLVideoElement;
         this.imageEl = this.stageEl.querySelector(".media-image") as HTMLImageElement;
-
-        const main = document.createElement("main");
-        main.className = "app-main";
-        main.append(
-            this.uploadPanel.element,
-            this.webcamPanel.element,
-            this.analysisPanel.element,
-            this.stageEl,
-            this.playbackControls.element
-        );
-
         this.settingsPanel.debugBody.appendChild(this.debugReadout.element);
 
-        const sidebar = document.createElement("aside");
-        sidebar.className = "app-sidebar";
-        sidebar.append(
-            this.countsPanel.element,
-            this.modelStatus.element,
-            this.classPanel.element,
-            this.settingsPanel.element
+        const spotlight = createSpotlight();
+        this.landingEl = this.buildLanding();
+        this.analysisEl = this.buildAnalysis();
+        this.root.replaceChildren(
+            spotlight,
+            this.landingEl,
+            this.analysisEl,
+            this.resultDialog.element,
+            this.settingsDialog.element
         );
+        this.setView("landing");
+    }
 
-        const layout = document.createElement("div");
-        layout.className = "app-layout";
-        layout.append(main, sidebar);
-
-        const footer = document.createElement("footer");
-        footer.className = "app-footer";
-        footer.innerHTML = `
-            Runs entirely in your browser. Detection by
-            <a href="https://github.com/ultralytics/ultralytics" rel="noopener">Ultralytics YOLOv8</a> (AGPL-3.0).
-            Free software under the <a href="https://www.gnu.org/licenses/agpl-3.0.html" rel="noopener">GNU AGPL-3.0</a>:
-            <a href="${SOURCE_COMMIT_URL}" rel="noopener">source code</a>${
-                __SOURCE_COMMIT__ ? ` (${__SOURCE_COMMIT__.slice(0, 7)})` : ""
-            }. <a href="THIRD_PARTY_NOTICES.txt" rel="noopener">Third-party notices</a>.
+    /** The start screen: a big title, then (one viewport down) the two ways to start. */
+    private buildLanding(): HTMLElement {
+        const landing = document.createElement("div");
+        landing.className = "landing";
+        landing.innerHTML = `
+            <section class="landing-hero">
+                <h1 class="landing-title">Object Counter</h1>
+                <p class="landing-intro glass">
+                    Every second, countless things pass through your field of view, and you hardly notice them.
+                    Upload a photo or a video, or turn on your camera, and see how many impressions there really are.
+                </p>
+                <a class="landing-scroll" href="#choose" aria-label="Scroll down to the start options" title="Scroll down">${iconSvg("down", 28)}</a>
+            </section>
+            <section class="landing-choose" id="choose" aria-labelledby="choose-title">
+                <h2 class="visually-hidden" id="choose-title">Choose what to analyze</h2>
+                <div class="choose-buttons">
+                    <div class="choose-item">
+                        <button type="button" class="choose-button choose-upload" aria-label="Photo or video: choose a file or drop it here" title="Photo or video">${iconSvg("photo", 56)}</button>
+                        <span class="choose-caption" aria-hidden="true">Photo / Video</span>
+                    </div>
+                    <div class="choose-item">
+                        <button type="button" class="choose-button choose-camera" aria-label="Analyze live with the camera" title="Camera">${iconSvg("camera", 56)}</button>
+                        <span class="choose-caption" aria-hidden="true">Camera</span>
+                    </div>
+                </div>
+                <p class="choose-error" role="alert" hidden></p>
+                ${this.footerHtml()}
+            </section>
         `;
+        this.chooseEl = landing.querySelector(".landing-choose") as HTMLElement;
+        this.chooseError = landing.querySelector(".choose-error") as HTMLElement;
+        this.chooseCameraButton = landing.querySelector(".choose-camera") as HTMLButtonElement;
+        const uploadButton = landing.querySelector(".choose-upload") as HTMLButtonElement;
+        landing.querySelector(".landing-choose")?.append(this.uploadPanel.element);
 
-        this.root.replaceChildren(header, layout, footer);
+        uploadButton.addEventListener("click", () => this.uploadPanel.openPicker());
+        this.uploadPanel.attachDropTarget(uploadButton);
+        this.chooseCameraButton.addEventListener("click", () => void this.startCamera(null));
+        return landing;
+    }
+
+    /** The analysis page: the media box, its controls, and the three elements on the right. */
+    private buildAnalysis(): HTMLElement {
+        const analysis = document.createElement("main");
+        analysis.className = "analysis";
+        analysis.innerHTML = `
+            <header class="analysis-header">
+                <a class="back-link" href="#choose" aria-label="Back to the start" title="Back to the start">${iconSvg("back")}</a>
+                <span class="analysis-title">Object Counter</span>
+            </header>
+            <div class="analysis-layout">
+                <div class="analysis-main">
+                    <div class="analysis-box"><p class="analysis-placeholder"></p></div>
+                    <p class="analysis-error upload-error" role="alert" hidden></p>
+                </div>
+                <aside class="analysis-side">
+                    <div class="control-card"></div>
+                </aside>
+            </div>
+            ${this.footerHtml()}
+        `;
+        this.analysisError = analysis.querySelector(".analysis-error") as HTMLElement;
+        this.placeholderEl = analysis.querySelector(".analysis-placeholder") as HTMLElement;
+        const box = analysis.querySelector(".analysis-box") as HTMLElement;
+        box.prepend(this.stageEl);
+        // A file dropped on the media box replaces the current input.
+        this.uploadPanel.attachDropTarget(box);
+        const main = analysis.querySelector(".analysis-main") as HTMLElement;
+        main.insertBefore(this.playbackControls.element, this.analysisError);
+        main.insertBefore(this.webcamPanel.element, this.analysisError);
+        // The totals as text stay for screen readers only; the treemap is the visible summary.
+        this.countsPanel.element.classList.add("visually-hidden");
+        main.append(this.countsPanel.element);
+        const side = analysis.querySelector(".analysis-side") as HTMLElement;
+        (side.querySelector(".control-card") as HTMLElement).append(this.modelStatus.element, this.classPanel.element);
+        side.prepend(this.resultDialog.triggerButton);
+        side.append(this.settingsDialog.triggerButton);
+
+        (analysis.querySelector(".back-link") as HTMLElement).addEventListener("click", (event) => {
+            event.preventDefault();
+            this.backToStart();
+        });
+        this.uploadPanel.onError((message) => {
+            for (const el of [this.chooseError, this.analysisError]) {
+                el.textContent = message ?? "";
+                el.hidden = !message;
+            }
+        });
+        return analysis;
+    }
+
+    private footerHtml(): string {
+        return `
+            <footer class="app-footer">
+                Runs entirely in your browser. Detection by
+                <a href="https://github.com/ultralytics/ultralytics" rel="noopener">Ultralytics YOLOv8</a> (AGPL-3.0).
+                Free software under the <a href="https://www.gnu.org/licenses/agpl-3.0.html" rel="noopener">GNU AGPL-3.0</a>:
+                <a href="${SOURCE_COMMIT_URL}" rel="noopener">source code</a>${
+                    __SOURCE_COMMIT__ ? ` (${__SOURCE_COMMIT__.slice(0, 7)})` : ""
+                }. <a href="THIRD_PARTY_NOTICES.txt" rel="noopener">Third-party notices</a>.
+            </footer>
+        `;
+    }
+
+    private setView(view: View): void {
+        document.documentElement.dataset.view = view;
+        this.landingEl.hidden = view !== "landing";
+        this.analysisEl.hidden = view !== "analysis";
+        if (view === "analysis") window.scrollTo(0, 0);
+    }
+
+    /** The arrow on the analysis page: ends a running camera, clears the input and scrolls to the start options. */
+    private backToStart(): void {
+        this.resultDialog.hide();
+        this.settingsDialog.hide();
+        this.unloadMedia();
+        this.uploadPanel.clearError();
+        this.setView("landing");
+        this.chooseEl.scrollIntoView();
+    }
+
+    /** The media box shows the stage, or a text (e.g. after the camera was stopped) when there is none. */
+    private setStageVisible(visible: boolean, placeholder = ""): void {
+        this.stageEl.hidden = !visible;
+        this.placeholderEl.hidden = visible;
+        this.placeholderEl.textContent = visible ? "" : placeholder;
+    }
+
+    /** The camera controls belong to a camera session (also while it is stopped). */
+    private syncChrome(): void {
+        this.webcamPanel.element.hidden = this.mediaKind !== "webcam";
     }
 
     private wireMedia(): void {
@@ -217,21 +328,15 @@ export class App {
         this.videoEl.addEventListener("seeked", () => this.overlay.renderOnce());
 
         this.playbackControls.onPlayPause(() => {
-            if (!this.playbackLocked()) this.player.togglePlayback();
+            this.player.togglePlayback();
         });
         this.playbackControls.onSeek((seconds) => this.player.seekToSeconds(seconds));
-        this.countsPanel.onReset(() => this.resetCounts());
 
         this.webcamPanel.onStart((deviceId) => void this.startCamera(deviceId));
         this.webcamPanel.onStop(() => this.stopCamera());
         this.webcamPanel.onPauseToggle(() => this.player.togglePlayback());
         this.webcamPanel.onDeviceChange((deviceId) => void this.startCamera(deviceId));
         navigator.mediaDevices?.addEventListener?.("devicechange", () => void this.refreshCameraList());
-
-        this.analysisPanel.onModeChange((mode) => this.setAnalysisMode(mode));
-        this.analysisPanel.onStart(() => void this.preAnalysis?.start());
-        this.analysisPanel.onStop(() => this.preAnalysis?.stop());
-        this.analysisPanel.onReanalyze(() => void this.preAnalysis?.reanalyze());
     }
 
     private wireSettings(): void {
@@ -249,13 +354,11 @@ export class App {
             } else {
                 this.refresh();
             }
-            this.preAnalysis?.settingsChanged();
         });
         this.classes.onChange(() => {
             // From now on only: tracks of disabled classes go, totals stay (marked "not counting").
             this.tracker.dropDisabledClasses(this.classes.getMask());
             this.refresh();
-            this.preAnalysis?.settingsChanged();
         });
         this.modelStatus.onRetry(() => {
             // A crashed worker cannot recover; start a fresh one.
@@ -266,9 +369,14 @@ export class App {
         });
     }
 
+    /** A file dropped beside the two drop targets must not make the browser open it and leave the page. */
+    private wireDropGuard(): void {
+        for (const type of ["dragover", "drop"]) window.addEventListener(type, (event) => event.preventDefault());
+    }
+
     private wireKeyboard(): void {
         window.addEventListener("keydown", (event) => {
-            if (event.code !== "Space" || !this.isStream() || !this.source || this.playbackLocked()) return;
+            if (event.code !== "Space" || !this.isStream() || !this.source) return;
             const target = event.target as HTMLElement | null;
             if (target && target.closest("input, select, textarea, button, [role='button']")) return;
             event.preventDefault();
@@ -295,8 +403,6 @@ export class App {
                         this.modelInfo = info;
                         this.modelStatus.showReady(info);
                         this.renderDebug();
-                        // A cache made with this model is no longer stale once it is loaded again.
-                        this.preAnalysis?.settingsChanged();
                     }
                     return info;
                 },
@@ -312,7 +418,8 @@ export class App {
     private async loadMedia(file: File, kind: MediaKind): Promise<void> {
         this.unloadMedia();
         this.mediaKind = kind;
-        this.stageEl.hidden = false;
+        this.syncChrome();
+        this.setStageVisible(true);
         this.videoEl.hidden = kind !== "video";
         this.imageEl.hidden = kind !== "image";
 
@@ -320,17 +427,15 @@ export class App {
             if (kind === "video") {
                 const source = await VideoSource.load(file, this.player);
                 this.source = source;
-                this.videoFile = file;
                 this.playbackControls.show(this.player.getDurationSeconds());
-                this.analysisPanel.show(true);
                 this.startRealtimeVideo(source);
-                this.renderAnalysisPanel();
                 this.renderVideoCounts();
                 this.debugTimer = window.setInterval(() => this.renderDebug(), 500);
             } else {
                 this.source = await ImageSource.load(file, this.imageEl);
                 void this.detect();
             }
+            this.setView("analysis");
             this.overlay.renderOnce();
         } catch (error) {
             this.unloadMedia();
@@ -351,152 +456,14 @@ export class App {
             },
             this.settings.get("maxInferenceFps")
         );
-        this.realtime.redetect();
+        // Current frame (disabled in V4): this.realtime.redetect();
         this.classPanel.setNote(CLASS_CHANGE_NOTE);
-    }
-
-    /**
-     * Switches a loaded video between realtime and pre-analysis. Each mode has
-     * its own totals; the pre-analysis cache of this file is kept while the
-     * file stays loaded, so switching back to it needs no new analysis.
-     */
-    private setAnalysisMode(mode: AnalysisMode): void {
-        const source = this.source;
-        if (!(source instanceof VideoSource) || !this.videoFile || mode === this.analysisMode) return;
-        this.analysisMode = mode;
-        this.player.pause();
-        this.realtime?.dispose();
-        this.realtime = null;
-        this.tracker.clear(true);
-        this.totals.reset();
-        if (mode === "pre") {
-            this.classPanel.setNote(null);
-            this.preAnalysis ??= new PreAnalysisSession(this.videoFile, {
-                detect: (frame) => this.detectFrame(frame),
-                currentSettings: async () => {
-                    const info = await this.model;
-                    return info ? this.analysisSettings() : null;
-                },
-                currentSettingsNow: () => this.analysisSettings(),
-                onChange: () => this.onPreAnalysisChange()
-            });
-            this.preAnalysis.settingsChanged();
-        } else {
-            this.preAnalysis?.stop();
-            this.startRealtimeVideo(source);
-        }
-        this.updatePlaybackLock();
-        this.renderAnalysisPanel();
-        this.renderVideoCounts();
-        this.overlay.renderOnce();
-        this.renderDebug();
-    }
-
-    /** The keys a pre-analysis is compared against. While a model loads, its key is a placeholder (= stale). */
-    private analysisSettings(): CurrentAnalysisSettings {
-        const s = this.settings.getSettings();
-        const enabled = this.classes.getMask().slice();
-        const info = this.modelInfo;
-        return {
-            inference: {
-                modelFile: info?.file ?? `loading ${s.modelSize}/${s.backend}`,
-                backend: info?.backend ?? (s.backend === "wasm" ? "wasm" : "webgpu"),
-                inputSize: s.inputSize,
-                iouThreshold: s.iouThreshold,
-                maxInferenceFps: s.maxInferenceFps
-            },
-            tracking: trackingKey(s, enabled),
-            trackingSettings: {
-                confidenceThreshold: s.confidenceThreshold,
-                enabled,
-                confirmationFrames: s.confirmationFrames,
-                lostBufferSeconds: s.lostBufferSeconds
-            }
-        };
-    }
-
-    private inPreAnalysis(): boolean {
-        return this.mediaKind === "video" && this.analysisMode === "pre";
-    }
-
-    private playbackLocked(): boolean {
-        return this.inPreAnalysis() && !this.preAnalysis?.unlocked;
-    }
-
-    private updatePlaybackLock(): void {
-        const locked = this.playbackLocked();
-        this.playbackControls.setLocked(locked, LOCKED_REASON);
-        if (locked && !this.videoEl.paused) this.player.pause();
-    }
-
-    /** Progress arrives ~100× per second: coalesce panel updates into one per animation frame. */
-    private onPreAnalysisChange(): void {
-        this.updatePlaybackLock();
-        if (this.preAnalysisRenderPending) return;
-        this.preAnalysisRenderPending = true;
-        requestAnimationFrame(() => {
-            this.preAnalysisRenderPending = false;
-            this.renderAnalysisPanel();
-            if (this.inPreAnalysis()) {
-                this.renderVideoCounts();
-                this.overlay.renderOnce();
-            }
-        });
-    }
-
-    private renderAnalysisPanel(): void {
-        const session = this.preAnalysis;
-        const state = session?.state ?? { status: "idle" as const };
-        const progress = session?.progress ?? null;
-        const info = session?.info ?? null;
-        let message: string | null;
-        switch (state.status) {
-            case "idle":
-                message =
-                    "Analyzes every frame (up to the max inference rate) before playback, faster than realtime. Playback unlocks when it is complete.";
-                break;
-            case "running":
-                message = LOCKED_REASON;
-                break;
-            case "stopped":
-                message = `Stopped at ${formatClock(progress?.mediaTime ?? 0)} of ${formatClock(info?.duration ?? 0)}. Resume continues from there; playback stays locked until the analysis is complete.`;
-                break;
-            case "complete": {
-                const ms = session?.completedInMs ?? progress?.elapsedMs ?? 0;
-                const speed = info && ms > 0 ? ` (${(info.duration / (ms / 1000)).toFixed(1)}× realtime)` : "";
-                message = `Complete: ${progress?.framesDone ?? 0} frames in ${formatClock(ms / 1000)}${speed}.`;
-                break;
-            }
-            case "stale":
-                message =
-                    state.from === "complete"
-                        ? "The boxes and totals shown are from the analysis before the settings change."
-                        : "The partial result shown is from before the settings change.";
-                break;
-        }
-        const view: AnalysisPanelView = {
-            mode: this.analysisMode,
-            status: state.status,
-            staleKind: state.kind,
-            canStart: session?.canStart ?? true,
-            resume: state.status === "stopped",
-            progress,
-            message,
-            error: session?.error ?? null
-        };
-        this.analysisPanel.render(view);
     }
 
     private unloadMedia(): void {
         this.detectionGeneration++;
-        this.preAnalysis?.dispose();
-        this.preAnalysis = null;
-        this.videoFile = null;
-        this.analysisMode = "realtime";
-        this.analysisPanel.show(false);
-        this.renderAnalysisPanel();
-        this.playbackControls.setLocked(false);
         this.cameraGeneration++;
+        this.chooseCameraButton.disabled = false;
         this.webcamPanel.setState("off");
         this.webcamPanel.setStatus(null);
         this.realtime?.dispose();
@@ -515,7 +482,8 @@ export class App {
         this.lastInput = null;
         this.detectionLayer.clear();
         this.mediaKind = null;
-        this.stageEl.hidden = true;
+        this.syncChrome();
+        this.setStageVisible(false);
         this.overlay.renderOnce();
         this.countsPanel.render({
             totalTitle: "Total",
@@ -539,6 +507,7 @@ export class App {
         this.uploadPanel.clearError();
         this.webcamPanel.clearError();
         this.webcamPanel.setState("starting");
+        this.chooseCameraButton.disabled = true;
 
         let source: WebcamSource | null = null;
         try {
@@ -552,7 +521,10 @@ export class App {
             if (generation !== this.cameraGeneration) return;
             source?.dispose();
             this.webcamPanel.setState("off");
+            this.chooseCameraButton.disabled = false;
+            // On the start screen the message appears under the two buttons, on the analysis page under the box.
             this.webcamPanel.showError(cameraErrorMessage(error));
+            this.uploadPanel.showError(cameraErrorMessage(error));
             this.renderVideoCounts();
             return;
         }
@@ -563,7 +535,9 @@ export class App {
 
         this.mediaKind = "webcam";
         this.source = source;
-        this.stageEl.hidden = false;
+        this.syncChrome();
+        this.setView("analysis");
+        this.setStageVisible(true);
         this.videoEl.hidden = false;
         this.imageEl.hidden = true;
         source.onEnded(() => this.stopCamera(CAMERA_DISCONNECTED_MESSAGE));
@@ -584,6 +558,7 @@ export class App {
         this.classPanel.setNote(CLASS_CHANGE_NOTE);
         this.debugTimer = window.setInterval(() => this.renderDebug(), 500);
         this.webcamPanel.setState("live");
+        this.chooseCameraButton.disabled = false;
         this.player.play();
         this.renderVideoCounts();
         this.overlay.renderOnce();
@@ -598,7 +573,7 @@ export class App {
         this.webcamPanel.setState("off");
         this.webcamPanel.setStatus(null);
         if (errorMessage) this.webcamPanel.showError(errorMessage);
-        this.stageEl.hidden = true;
+        this.setStageVisible(false, CAMERA_STOPPED_MESSAGE);
         this.renderVideoCounts();
         this.renderDebug();
     }
@@ -679,7 +654,7 @@ export class App {
     /** After a change that alters inference itself (IoU, input size, model). */
     private rerunDetection(): void {
         if (this.mediaKind === "image") void this.detect();
-        else this.realtime?.redetect(); // while playing, the next sampled frames use the new settings anyway
+        // Current frame (disabled in V4): else this.realtime?.redetect(); // while playing, the next sampled frames use the new settings anyway
     }
 
     /** A frame sampled during playback: update tracks, count newly confirmed ones. */
@@ -703,6 +678,7 @@ export class App {
                         detections: result.detections.filter((d) => d.score >= lowScore),
                         tracks: this.tracker.snapshot(),
                         newlyConfirmed: update.newlyConfirmed,
+                        reset: update.reset,
                         trackerMs: this.lastTrackerMs
                     }
                 })
@@ -729,13 +705,6 @@ export class App {
 
     /** The unfiltered detections for the frame at `timeSeconds`. */
     private rawAt(timeSeconds: number): Detection[] | null {
-        if (this.inPreAnalysis()) {
-            const cache = this.preAnalysis?.cache;
-            const index = cache ? cache.indexAtOrBefore(timeSeconds) : -1;
-            return cache && index >= 0 && timeSeconds - cache.time(index) <= MAX_TRACK_DISPLAY_AGE
-                ? cache.at(index).detections
-                : null;
-        }
         if (this.isStream()) return this.realtime?.resultAt(timeSeconds)?.detections ?? null;
         return this.rawDetections;
     }
@@ -752,35 +721,16 @@ export class App {
         let resultTime = "";
         if (!this.isStream()) {
             shown = raw ? this.filtered(raw) : [];
-        } else if (this.inPreAnalysis()) {
-            // From the cache: the analyzed sample shown at this time, with the settings it was tracked with.
-            const run = this.preAnalysis?.tracking;
-            const frame = run?.tracksAt(timeSeconds, MAX_TRACK_DISPLAY_AGE) ?? null;
-            if (!run || !frame) {
-                shown = [];
-            } else if (this.videoEl.paused && raw && Math.abs(frame.time - timeSeconds) < 0.002) {
-                const { confidenceThreshold, enabled } = run.settings;
-                const detections = filterDetections(raw, confidenceThreshold, enabled);
-                const ids = trackIdsFor(detections, frame.tracks);
-                shown = detections.map((d, i) => ({ ...d, trackId: ids[i] }));
-            } else {
-                shown = frame.tracks.map((t) => ({
-                    classId: t.classId,
-                    score: t.confidence,
-                    box: t.box,
-                    trackId: t.id
-                }));
-            }
-            resultTime = frame?.time.toFixed(3) ?? "";
-        } else if (this.videoEl.paused && this.realtime?.hasExactResult()) {
-            // Paused: the frame's own detections (what "Current frame" counts), labeled with overlapping tracks.
-            const exact = this.realtime.resultAt(timeSeconds);
-            const detections = exact ? this.filtered(exact.detections) : [];
-            const ids = trackIdsFor(detections, this.tracker.visibleAt(timeSeconds, MAX_TRACK_DISPLAY_AGE));
-            shown = detections.map((d, i) => ({ ...d, trackId: ids[i] }));
-            resultTime = exact?.mediaTime.toFixed(3) ?? "";
+            // Current frame (disabled in V4):
+            // } else if (this.videoEl.paused && this.realtime?.hasExactResult()) {
+            //     // Paused: the frame's own detections (what "Current frame" counts), labeled with overlapping tracks.
+            //     const exact = this.realtime.resultAt(timeSeconds);
+            //     const detections = exact ? this.filtered(exact.detections) : [];
+            //     const ids = trackIdsFor(detections, this.tracker.visibleAt(timeSeconds, MAX_TRACK_DISPLAY_AGE));
+            //     shown = detections.map((d, i) => ({ ...d, trackId: ids[i] }));
+            //     resultTime = exact?.mediaTime.toFixed(3) ?? "";
         } else {
-            // Playing: tracks, predicted to the displayed media time (no lag behind the picture).
+            // Tracks, predicted to the displayed media time (no lag behind the picture).
             const tracks = this.tracker.visibleAt(timeSeconds, MAX_TRACK_DISPLAY_AGE);
             shown = tracks.map((t) => ({ classId: t.classId, score: t.confidence, box: t.box, trackId: t.id }));
             const updated = this.tracker.getLastTime();
@@ -811,12 +761,8 @@ export class App {
         this.renderDebug();
     }
 
-    /** Video and webcam: totals (unique confirmed tracks) always; the current-frame section only while paused. */
+    /** Video and webcam: totals (unique confirmed tracks). */
     private renderVideoCounts(): void {
-        if (this.inPreAnalysis()) {
-            this.renderPreAnalysisCounts();
-            return;
-        }
         const realtime = this.realtime;
         const total = this.totals.totals(this.classes.getMask());
         if (!realtime) {
@@ -842,57 +788,18 @@ export class App {
                       : "No objects counted yet. Play the video to count.",
             canReset: true
         };
-        if (!this.videoEl.paused) {
-            this.countsPanel.render(totalView);
-            return;
-        }
-        const exact = realtime.hasExactResult() ? realtime.resultAt(this.player.getCurrentSeconds()) : null;
-        this.countsPanel.render({
-            ...totalView,
-            current: exact ? countByClass(this.filtered(exact.detections)) : null,
-            currentMessage: exact ? undefined : "Detecting…"
-        });
-    }
-
-    /** Pre-analysis: totals for the whole video once complete, labeled incomplete before; no Reset (the cache defines them). */
-    private renderPreAnalysisCounts(): void {
-        const session = this.preAnalysis;
-        const run = session?.tracking;
-        const cache = session?.cache;
-        if (!session || !run || !cache || session.state.status === "idle") {
-            this.countsPanel.render({
-                totalTitle: "Total",
-                total: null,
-                message: "Start the pre-analysis to count. The totals for the whole video are shown before playback."
-            });
-            return;
-        }
-        const complete = session.unlocked;
-        const progress = session.progress;
-        const view = {
-            totalTitle: complete ? "Total (whole video)" : "Total (incomplete)",
-            total: run.totals(),
-            message: complete
-                ? session.state.status === "stale"
-                    ? "From the analysis before the settings change."
-                    : undefined
-                : `Analyzed ${formatClock(progress?.mediaTime ?? 0)} of ${formatClock(session.info?.duration ?? 0)}.`,
-            busy: session.state.status === "running"
-        };
-        if (!complete || !this.videoEl.paused) {
-            this.countsPanel.render(view);
-            return;
-        }
-        // Paused: the analyzed sample for the displayed frame (a 60 fps video sampled at 30 shows the one before).
-        const time = this.player.getCurrentSeconds();
-        const index = cache.indexAtOrBefore(time);
-        const sample = index >= 0 && time - cache.time(index) <= MAX_TRACK_DISPLAY_AGE ? cache.at(index) : null;
-        const { confidenceThreshold, enabled } = run.settings;
-        this.countsPanel.render({
-            ...view,
-            current: sample ? countByClass(filterDetections(sample.detections, confidenceThreshold, enabled)) : [],
-            currentMessage: sample ? undefined : "No analyzed frame here."
-        });
+        this.countsPanel.render(totalView);
+        // Current frame (disabled in V4): while paused, the paused frame's own counts.
+        // if (!this.videoEl.paused) {
+        //     this.countsPanel.render(totalView);
+        //     return;
+        // }
+        // const exact = realtime.hasExactResult() ? realtime.resultAt(this.player.getCurrentSeconds()) : null;
+        // this.countsPanel.render({
+        //     ...totalView,
+        //     current: exact ? countByClass(this.filtered(exact.detections)) : null,
+        //     currentMessage: exact ? undefined : "Detecting…"
+        // });
     }
 
     private renderDebug(): void {
@@ -919,21 +826,7 @@ export class App {
                           playbackTotal: quality.totalVideoFrames
                       }
                     : null,
-            tracker:
-                this.isStream() && !this.inPreAnalysis()
-                    ? { ...this.tracker.stats(), updateMs: this.lastTrackerMs }
-                    : null,
-            analysis:
-                this.inPreAnalysis() && this.preAnalysis?.cache
-                    ? {
-                          samples: this.preAnalysis.cache.length,
-                          cacheBytes: this.preAnalysis.cache.byteSize(),
-                          samplesPerSecond:
-                              this.preAnalysis.progress && this.preAnalysis.progress.elapsedMs > 0
-                                  ? this.preAnalysis.progress.framesDone / (this.preAnalysis.progress.elapsedMs / 1000)
-                                  : null
-                      }
-                    : null,
+            tracker: this.isStream() ? { ...this.tracker.stats(), updateMs: this.lastTrackerMs } : null,
             camera: this.source instanceof WebcamSource ? this.source.mode() : null
         });
     }

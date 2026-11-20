@@ -6,9 +6,8 @@
  * recorded.
  *
  *   node scripts/e2e/profileFlow.ts [--build] [--headed] [--seconds 8] [--label x]
- *       [--clips a.mp4,b.mp4] [--configs s-webgpu,n-webgpu,n-wasm] [--pre]
+ *       [--clips a.mp4,b.mp4] [--configs s-webgpu,n-webgpu,n-wasm]
  *
- * --pre profiles pre-analysis (whole clip, every frame) instead of realtime playback.
  * --load [--mbps 50]: first visit with an empty cache on a throttled network (default model
  * Auto), then a reload: time until the model is ready and when each file over 1 MB downloaded.
  *
@@ -30,7 +29,6 @@ const SECONDS = Number(option("--seconds", "8"));
 const LABEL = option("--label", "profile");
 const CLIPS = option("--clips", "moving_car.mp4,steady-2.mp4,moving_drone-2.mp4").split(",");
 const CONFIGS = option("--configs", "s-webgpu,n-webgpu,n-wasm").split(",");
-const PRE = args.has("--pre");
 const LOAD = args.has("--load");
 const MBPS = Number(option("--mbps", "50"));
 const PORT = 5197;
@@ -99,10 +97,11 @@ const fmt = (values: number[]) => `${percentile(values, 0.5).toFixed(1)} / ${per
 async function profileClip(page: Page, clip: string) {
     await uploadFile(page, resolve("test-vid", clip));
     await page.waitForFunction(() => (document.querySelector("video") as HTMLVideoElement).readyState >= 2);
-    await page.waitForFunction(
-        () => !(document.querySelector(".counts-current") as HTMLElement).textContent?.includes("Detecting"),
-        { timeout: 30_000 }
-    );
+    // Current frame (disabled in V4): waited here for the paused first frame's detection ("Detecting…" gone).
+    // await page.waitForFunction(
+    //     () => !(document.querySelector(".counts-current") as HTMLElement).textContent?.includes("Detecting"),
+    //     { timeout: 30_000 }
+    // );
     await page.evaluate(() => {
         window.__frames.clear();
         window.__longTasks.length = 0;
@@ -127,38 +126,6 @@ async function profileClip(page: Page, clip: string) {
         dropped: debug["Sampled frames dropped"],
         longTasks: `${longTasks.length} (max ${Math.round(Math.max(0, ...longTasks))} ms)`,
         videoFramesDropped: quality1 - quality0,
-        clip
-    };
-}
-
-/** Pre-analysis of the whole clip: every frame, back to back. */
-async function profilePre(page: Page, clip: string) {
-    await uploadFile(page, resolve("test-vid", clip));
-    await page.waitForFunction(() => (document.querySelector("video") as HTMLVideoElement).readyState >= 2);
-    await page.$eval(`.analysis-mode input[value="pre"]`, (el) => {
-        const radio = el as HTMLInputElement;
-        radio.checked = true;
-        radio.dispatchEvent(new Event("change"));
-    });
-    await page.evaluate(() => {
-        window.__frames.clear();
-        window.__longTasks.length = 0;
-    });
-    const start = Date.now();
-    await page.click(".analysis-start");
-    await page.waitForFunction(
-        () => (document.querySelector(".analysis-panel") as HTMLElement).dataset.status === "complete",
-        { timeout: 300_000, polling: 50 }
-    );
-    const seconds = (Date.now() - start) / 1000;
-    const duration = await page.$eval("video", (v) => v.duration);
-    const frames: FrameRecord[] = await page.evaluate(() => [...window.__frames.values()]);
-    const longTasks: number[] = await page.evaluate(() => [...window.__longTasks]);
-    return {
-        ...stats(frames),
-        xRealtime: (duration / seconds).toFixed(2),
-        seconds: seconds.toFixed(1),
-        longTasks: `${longTasks.length} (max ${Math.round(Math.max(0, ...longTasks))} ms)`,
         clip
     };
 }
@@ -245,7 +212,7 @@ try {
         await setSelect(page, "modelSize", model === "n" ? 1 : 2); // options: auto, n, s
         const loaded = await waitForModel(page);
         for (const clip of CLIPS) {
-            const result = PRE ? await profilePre(page, clip) : await profileClip(page, clip);
+            const result = await profileClip(page, clip);
             results.push({ config, model: loaded, ...result, errors: [...errors] });
             const { raw: _raw, ...shown } = result;
             console.error(`${config} ${JSON.stringify(shown)}`);
@@ -253,17 +220,16 @@ try {
         await browser.close();
     }
 } finally {
-    writeFileSync(`${OUT}/${LABEL}${PRE ? "-pre" : ""}.json`, JSON.stringify(results, null, 1));
+    writeFileSync(`${OUT}/${LABEL}.json`, JSON.stringify(results, null, 1));
     await server.close();
 }
 
-const last = PRE ? "× realtime" : "dropped";
 console.log(
-    `| config | clip | fps | ${last} | round trip | pre | infer | post | messaging | idle gap | worker busy | long tasks | video drops |`
+    `| config | clip | fps | dropped | round trip | pre | infer | post | messaging | idle gap | worker busy | long tasks | video drops |`
 );
 console.log("|---|---|---|---|---|---|---|---|---|---|---|---|---|");
 for (const r of results as Record<string, never>[]) {
     console.log(
-        `| ${r.config} | ${r.clip} | ${(r.fps as number).toFixed(1)} | ${PRE ? r.xRealtime : r.dropped} | ${r.roundTrip} | ${r.pre} | ${r.infer} | ${r.post} | ${r.overhead} | ${r.idle} | ${r.workerBusy} | ${r.longTasks} | ${r.videoFramesDropped ?? "–"} |`
+        `| ${r.config} | ${r.clip} | ${(r.fps as number).toFixed(1)} | ${r.dropped} | ${r.roundTrip} | ${r.pre} | ${r.infer} | ${r.post} | ${r.overhead} | ${r.idle} | ${r.workerBusy} | ${r.longTasks} | ${r.videoFramesDropped ?? "–"} |`
     );
 }

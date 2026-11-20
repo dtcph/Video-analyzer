@@ -194,11 +194,12 @@ try {
         await uploadFile(page, resolve("test-vid", clip));
         await page.waitForFunction(() => (document.querySelector("video") as HTMLVideoElement).readyState >= 2);
         await installTrace(page);
-        // Wait for the paused first frame's detection, so playback starts from a settled state.
-        await page.waitForFunction(
-            () => !(document.querySelector(".counts-current") as HTMLElement).textContent?.includes("Detecting"),
-            { timeout: 30_000 }
-        );
+        // Current frame (disabled in V4): waited here for the paused first frame's detection, so playback
+        // started from a settled state.
+        // await page.waitForFunction(
+        //     () => !(document.querySelector(".counts-current") as HTMLElement).textContent?.includes("Detecting"),
+        //     { timeout: 30_000 }
+        // );
 
         await page.click(".playback-button");
         const started = Date.now();

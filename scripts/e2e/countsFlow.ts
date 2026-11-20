@@ -8,7 +8,7 @@
  */
 import { resolve } from "node:path";
 import type { Page } from "puppeteer-core";
-import { collectErrors, launchChrome, serveApp, uploadFile, waitForModel } from "./harness.ts";
+import { collectErrors, launchChrome, resetCounts, serveApp, uploadFile, waitForModel } from "./harness.ts";
 
 const args = new Set(process.argv.slice(2));
 const PORT = 5196;
@@ -45,14 +45,14 @@ try {
     await sleep(1000);
 
     const initial = await totals(page);
-    const resetVisible = await page.$eval(".counts-reset", (b) => (b as HTMLElement).hidden === false);
+    const resetVisible = await page.$eval(".result-reset", (b) => (b as HTMLElement).hidden === false);
     check("empty totals and Reset button after load", sum(initial.rows) === 0 && resetVisible, initial.text);
 
     await page.click(".playback-button");
     await sleep(3000);
     const playing = await totals(page);
-    const currentHidden = await page.$eval(".counts-current", (s) => (s as HTMLElement).hidden === true);
-    check("totals grow while playing; current frame hidden", sum(playing.rows) > 0 && currentHidden, playing.rows);
+    // Current frame (disabled in V4): also checked that the "Current frame" section is hidden while playing.
+    check("totals grow while playing", sum(playing.rows) > 0, playing.rows);
 
     await page.click(".playback-button");
     await sleep(1500);
@@ -105,7 +105,7 @@ try {
         { before: disabled.rows, after: disabledLater.rows, inactive: disabled.inactive, note }
     );
 
-    await page.click(".counts-reset");
+    await resetCounts(page);
     await sleep(300);
     const reset = await totals(page);
     check("Reset counts clears totals", sum(reset.rows) === 0, reset.text);

@@ -65,9 +65,11 @@ describe("DetectionLayer", () => {
         expect(second.calls).toHaveLength(0);
     });
 
-    it("gives every class a stable, distinct color", () => {
+    it("gives every class a stable color, one accent per class group", () => {
         const colors = new Set(Array.from({ length: 80 }, (_, id) => classColor(id)));
-        expect(colors.size).toBe(80);
+        // 9 groups, up to 3 shades each (see rendering/classColors.ts).
+        expect(colors.size).toBeGreaterThan(9);
+        expect(colors.size).toBeLessThanOrEqual(27);
         expect(classColor(5)).toBe(classColor(5));
     });
 

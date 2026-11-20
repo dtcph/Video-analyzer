@@ -14,11 +14,8 @@ It is a study project in data visualization, and it runs entirely in your browse
 - **Detection:** a YOLOv8 model recognizes 80 kinds of everyday objects (people, cars, buses, bicycles, dogs, cups, phones, ...) and draws a labeled box around each one.
 - **Counting:**
   - **Total:** how many different objects appeared over the whole video or webcam session, per kind. Each object is followed across frames and counted once.
-  - **Current frame:** pause to see what is visible in that single moment.
 - **Choose what to count:** class groups (People, Animals, Transportation, Kitchen & food, ...), a confidence threshold, and Reset counts.
-- **Two video modes:**
-  - **Realtime** analyzes while the video plays.
-  - **Pre-analysis** first goes through every frame, faster than realtime, then plays back with the complete totals shown from the start.
+- **Analysis result:** a treemap of everything counted so far, in a pop-up; with the webcam it updates live.
 
 ## How it works
 
@@ -67,4 +64,4 @@ Source code: https://github.com/dtcph/Video-analyzer
 
 Object detection uses **[Ultralytics YOLOv8](https://github.com/ultralytics/ultralytics)**, whose code and pretrained weights are licensed under AGPL-3.0. The model is pretrained on the [COCO dataset](https://cocodataset.org/) (annotations CC BY 4.0). The source of this website, including how the model files are produced ([scripts/export-model.md](scripts/export-model.md)), is published in this repository; the site's footer links to the exact commit it was built from.
 
-Bundled third-party software: ONNX Runtime Web (MIT) and Mediabunny (MPL-2.0). Their license texts are in [public/THIRD_PARTY_NOTICES.txt](public/THIRD_PARTY_NOTICES.txt), served with the site.
+Bundled third-party software: ONNX Runtime Web (MIT) and the D3 modules d3-hierarchy, d3-selection and d3-transition (ISC; with d3-color, d3-dispatch, d3-interpolate, d3-timer and d3-ease). Their license texts are in [public/THIRD_PARTY_NOTICES.txt](public/THIRD_PARTY_NOTICES.txt), served with the site.

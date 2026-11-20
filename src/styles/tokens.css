@@ -1,0 +1,62 @@
+/*
+ * Design tokens. Colors follow 60 / 30 / 10: about 60% dark off-black ground,
+ * 30% off-white and grays (text, lines, glass), 10% accent colors.
+ * The accents are mirrored in src/rendering/palette.ts (a test keeps them in step).
+ */
+
+:root {
+    /* 60%: the ground */
+    --ink-900: #0b0b0d;
+    --ink-800: #131317;
+    --ink-700: #1c1c22;
+
+    /* 30%: off-white and grays */
+    --paper: #f1efea;
+    --gray-300: #bdbbb6;
+    --gray-400: #9c9a96;
+    --line: rgb(255 255 255 / 0.14);
+    --line-soft: rgb(255 255 255 / 0.08);
+
+    /* 10%: accents, around the color wheel */
+    --accent-yellow: #eaf205;
+    --accent-green: #3bf27a;
+    --accent-turquoise: #04d9c4;
+    --accent-blue: #2f7bf2;
+    --accent-violet: #8344ef;
+    --accent-pink: #f050f2;
+    --accent-red: #f22f1d;
+    --accent-orange: #f29829;
+
+    --danger: #ff8a7a;
+
+    /* Type scale (1.333), in rem: the root is 16px */
+    --fs-h1: 5.61rem;
+    --fs-h2: 4.209rem;
+    --fs-h3: 3.157rem;
+    --fs-h4: 2.369rem;
+    --fs-h5: 1.777rem;
+    --fs-h6: 1.333rem;
+    --fs-p: 1rem;
+    --fs-small: 0.75rem;
+    --fs-micro: 0.563rem;
+
+    --font-sans: "Space Grotesk Variable", "Helvetica Neue", Arial, sans-serif;
+    --font-mono: "SF Mono", "Menlo", "Consolas", monospace;
+
+    /* Shape and motion */
+    --radius-sm: 0.5rem;
+    --radius-md: 0.875rem;
+    --radius-lg: 1.5rem;
+    --radius-full: 999px;
+    --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+    --dialog-duration: 450ms;
+
+    /* Glass: translucent surface, light edge, soft shadow */
+    --glass-fill: linear-gradient(135deg, rgb(255 255 255 / 0.08), rgb(255 255 255 / 0.02)), rgb(11 11 13 / 0.5);
+    --glass-edge: inset 0 1px 0 rgb(255 255 255 / 0.14);
+    --glass-shadow: 0 0.5rem 2rem rgb(0 0 0 / 0.35);
+    /* Popups can lie over the live picture, so they get no backdrop blur: a nearly opaque fill instead. */
+    --glass-flat-fill: rgb(16 16 20 / 0.94);
+
+    color-scheme: dark;
+}

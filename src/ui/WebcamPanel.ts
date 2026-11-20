@@ -1,14 +1,18 @@
 import type { CameraDevice } from "../input/webcam";
+import { iconSvg } from "./icons";
 
 export type WebcamState = "off" | "starting" | "live" | "paused";
 
 /**
- * Camera controls under the upload area: Start camera, a device picker,
- * Pause / Resume and Stop, a status line and an error line. Reports user
- * actions only; App opens and releases the camera.
+ * Camera controls under the analysis box: Start camera (after a stop),
+ * Pause / Resume and Stop, a status line and an error line. The camera
+ * choice is a separate element (`devicePicker`) for the settings pop-up.
+ * Reports user actions only; App opens and releases the camera.
  */
 export class WebcamPanel {
     readonly element: HTMLElement;
+    /** The camera choice: shown only while the camera runs and there is more than one. */
+    readonly devicePicker: HTMLElement;
     private readonly startButton: HTMLButtonElement;
     private readonly pauseButton: HTMLButtonElement;
     private readonly stopButton: HTMLButtonElement;
@@ -25,10 +29,9 @@ export class WebcamPanel {
         this.element.className = "webcam-panel";
         this.element.innerHTML = `
             <div class="webcam-controls">
-                <button type="button" class="webcam-start">Start camera</button>
-                <select class="webcam-device" aria-label="Camera" hidden></select>
-                <button type="button" class="webcam-pause" hidden title="Pause / Resume (Space)">Pause</button>
-                <button type="button" class="webcam-stop" hidden>Stop camera</button>
+                <button type="button" class="webcam-start" aria-label="Start camera" title="Start camera">${iconSvg("camera")}</button>
+                <button type="button" class="webcam-pause" aria-label="Pause" title="Pause / Resume (Space)" hidden>${iconSvg("pause")}</button>
+                <button type="button" class="webcam-stop" aria-label="Stop camera" title="Stop camera" hidden>${iconSvg("stop")}</button>
             </div>
             <p class="webcam-status panel-note" hidden></p>
             <p class="webcam-error upload-error" role="alert" hidden></p>
@@ -36,7 +39,11 @@ export class WebcamPanel {
         this.startButton = this.element.querySelector(".webcam-start") as HTMLButtonElement;
         this.pauseButton = this.element.querySelector(".webcam-pause") as HTMLButtonElement;
         this.stopButton = this.element.querySelector(".webcam-stop") as HTMLButtonElement;
-        this.deviceSelect = this.element.querySelector(".webcam-device") as HTMLSelectElement;
+        this.devicePicker = document.createElement("label");
+        this.devicePicker.className = "webcam-device-picker";
+        this.devicePicker.hidden = true;
+        this.devicePicker.innerHTML = `<span class="panel-title">Camera</span><select class="webcam-device"></select>`;
+        this.deviceSelect = this.devicePicker.querySelector(".webcam-device") as HTMLSelectElement;
         this.statusEl = this.element.querySelector(".webcam-status") as HTMLElement;
         this.errorEl = this.element.querySelector(".webcam-error") as HTMLElement;
 
@@ -74,11 +81,12 @@ export class WebcamPanel {
         this.element.dataset.state = state;
         this.startButton.hidden = running;
         this.startButton.disabled = state === "starting";
-        this.startButton.textContent = state === "starting" ? "Starting camera…" : "Start camera";
+        this.startButton.title = state === "starting" ? "Starting camera…" : "Start camera";
         this.pauseButton.hidden = !running;
-        this.pauseButton.textContent = state === "paused" ? "Resume" : "Pause";
+        this.pauseButton.innerHTML = iconSvg(state === "paused" ? "play" : "pause");
+        this.pauseButton.setAttribute("aria-label", state === "paused" ? "Resume" : "Pause");
         this.stopButton.hidden = !running;
-        this.deviceSelect.hidden = !running || this.deviceSelect.options.length < 2;
+        this.devicePicker.hidden = !running || this.deviceSelect.options.length < 2;
     }
 
     /** Fills the picker; shown only while running and when there is a choice. */
@@ -93,7 +101,7 @@ export class WebcamPanel {
         );
         if (selectedId && devices.some((d) => d.deviceId === selectedId)) this.deviceSelect.value = selectedId;
         const running = this.element.dataset.state === "live" || this.element.dataset.state === "paused";
-        this.deviceSelect.hidden = !running || devices.length < 2;
+        this.devicePicker.hidden = !running || devices.length < 2;
     }
 
     setStatus(text: string | null): void {

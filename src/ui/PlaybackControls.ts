@@ -1,4 +1,5 @@
 import { formatTimecode } from "../utils/format";
+import { iconSvg } from "./icons";
 
 export type SeekHandler = (seconds: number) => void;
 
@@ -17,7 +18,7 @@ export class PlaybackControls {
         this.element.className = "playback-controls";
         this.element.hidden = true;
         this.element.innerHTML = `
-            <button type="button" class="playback-button" title="Play / Pause (Space)">Play</button>
+            <button type="button" class="playback-button" aria-label="Play" title="Play / Pause (Space)">${iconSvg("play")}</button>
             <input type="range" class="playback-scrubber" min="0" max="1" step="0.001" value="0" aria-label="Seek" />
             <span class="playback-time">00:00.000 / 00:00.000</span>
         `;
@@ -54,16 +55,9 @@ export class PlaybackControls {
         this.setCurrentTime(0);
     }
 
-    /** Pre-analysis locks playback until the analysis is complete. */
-    setLocked(locked: boolean, reason = ""): void {
-        this.element.classList.toggle("is-locked", locked);
-        this.playButton.disabled = locked;
-        this.scrubber.disabled = locked;
-        this.element.title = locked ? reason : "";
-    }
-
     setPlaying(playing: boolean): void {
-        this.playButton.textContent = playing ? "Pause" : "Play";
+        this.playButton.innerHTML = iconSvg(playing ? "pause" : "play");
+        this.playButton.setAttribute("aria-label", playing ? "Pause" : "Play");
     }
 
     setCurrentTime(seconds: number): void {

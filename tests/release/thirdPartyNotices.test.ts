@@ -10,7 +10,12 @@ describe("public/THIRD_PARTY_NOTICES.txt", () => {
     it.each(dependencies)("names %s at its installed version with its license", (name) => {
         const installed = readJson(`node_modules/${name}/package.json`) as { version: string; license: string };
         expect(notices).toContain(`${name} ${installed.version}`);
-        const licenseName = { MIT: "MIT License", "MPL-2.0": "Mozilla Public License" }[installed.license];
+        const licenseName = {
+            ISC: "ISC License",
+            MIT: "MIT License",
+            "MPL-2.0": "Mozilla Public License",
+            "OFL-1.1": "SIL Open Font License"
+        }[installed.license];
         expect(licenseName, `no license text mapping for ${installed.license}`).toBeDefined();
         expect(notices).toContain(licenseName);
     });

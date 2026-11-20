@@ -1,5 +1,6 @@
 import type { LoadProgress, ModelInfo } from "../inference/InferenceMessages";
 import { formatFileSize } from "../utils/format";
+import { iconSvg } from "./icons";
 
 const STAGE_TEXT: Record<LoadProgress["stage"], string> = {
     runtime: "Loading the inference runtime…",
@@ -26,7 +27,7 @@ export class ModelStatusPanel {
             <p class="model-status-text" role="status"></p>
             <progress class="model-status-bar" max="1" value="0"></progress>
             <ul class="model-status-notes"></ul>
-            <button type="button" class="model-status-retry" hidden>Retry</button>
+            <button type="button" class="model-status-retry" aria-label="Retry loading the model" title="Retry" hidden>${iconSvg("reset")}</button>
         `;
         this.text = this.element.querySelector(".model-status-text") as HTMLElement;
         this.bar = this.element.querySelector(".model-status-bar") as HTMLProgressElement;

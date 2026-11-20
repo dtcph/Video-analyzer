@@ -3,11 +3,11 @@
  *
  *   node scripts/e2e/videoFlow.ts [--build] [--headed] [--seconds 6]
  *
- * For each clip × backend × max inference rate: load, check the paused first
- * frame is detected, play, measure (effective inference FPS, dropped samples,
- * latency, dropped video frames, box lag behind the picture), pause (current-
- * frame counts must be for exactly the displayed frame), seek while paused and
- * while playing (no boxes from before the seek may ever be drawn).
+ * For each clip × backend × max inference rate: load, play, measure (effective
+ * inference FPS, dropped samples, latency, dropped video frames, box lag behind
+ * the picture), pause, seek while paused and while playing (no boxes from
+ * before the seek may ever be drawn). The "Current frame" checks (paused first
+ * frame detected, counts and boxes exact for the paused frame) are disabled in V4.
  * Writes .cache/e2e/video-flow.json, a markdown table to stdout, and screenshots.
  */
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -70,30 +70,32 @@ async function takeDraws(page: Page): Promise<DrawSample[]> {
     return page.evaluate(() => window.__draws.splice(0));
 }
 
-async function currentCounts(page: Page): Promise<string> {
-    await page.waitForFunction(
-        () => {
-            const section = document.querySelector(".counts-current") as HTMLElement;
-            return !section.hidden && !section.textContent?.includes("Detecting");
-        },
-        { timeout: 30_000 }
-    );
-    return page.$eval(
-        ".counts-current",
-        (el) => el.querySelector(".counts-summary")?.textContent ?? el.querySelector(".panel-empty")?.textContent ?? ""
-    );
-}
+// Current frame (disabled in V4):
+// async function currentCounts(page: Page): Promise<string> {
+//     await page.waitForFunction(
+//         () => {
+//             const section = document.querySelector(".counts-current") as HTMLElement;
+//             return !section.hidden && !section.textContent?.includes("Detecting");
+//         },
+//         { timeout: 30_000 }
+//     );
+//     return page.$eval(
+//         ".counts-current",
+//         (el) => el.querySelector(".counts-summary")?.textContent ?? el.querySelector(".panel-empty")?.textContent ?? ""
+//     );
+// }
 
 async function videoState(page: Page) {
     return page.$eval("video", (v) => ({ paused: v.paused, time: v.currentTime, duration: v.duration }));
 }
 
-async function exactPausedFrame(page: Page): Promise<boolean> {
-    return page.$eval(".media-stage", (stage) => {
-        const { drawTime, resultTime } = (stage as HTMLElement).dataset;
-        return resultTime !== "" && Math.abs(Number(drawTime) - Number(resultTime)) < 0.002;
-    });
-}
+// Current frame (disabled in V4):
+// async function exactPausedFrame(page: Page): Promise<boolean> {
+//     return page.$eval(".media-stage", (stage) => {
+//         const { drawTime, resultTime } = (stage as HTMLElement).dataset;
+//         return resultTime !== "" && Math.abs(Number(drawTime) - Number(resultTime)) < 0.002;
+//     });
+// }
 
 async function seekTo(page: Page, seconds: number): Promise<void> {
     await page.$eval(
@@ -152,7 +154,7 @@ try {
                 await uploadFile(page, resolve("test-vid", clip));
                 await page.waitForFunction(() => (document.querySelector("video") as HTMLVideoElement).readyState >= 2);
                 await installDrawLog(page);
-                run.firstFrameCounts = await currentCounts(page);
+                // Current frame (disabled in V4): run.firstFrameCounts = await currentCounts(page);
 
                 // Play and measure.
                 await takeDraws(page);
@@ -180,18 +182,20 @@ try {
                     )?.screenshot({ path: `${OUT}/video__${clip.replace(".mp4", "")}.png` });
                 }
 
-                // Pause: the current-frame counts must be for the displayed frame.
+                // Pause. Current frame (disabled in V4): the counts and boxes must be for the displayed frame.
                 await page.click(".playback-button");
-                run.pausedCounts = await currentCounts(page);
-                run.pausedExact = await exactPausedFrame(page);
+                // run.pausedCounts = await currentCounts(page);
+                // run.pausedExact = await exactPausedFrame(page);
 
                 // Seek while paused.
                 const { duration } = await videoState(page);
                 await takeDraws(page);
                 const pausedTarget = Math.round(duration * 0.7 * 100) / 100;
                 await seekTo(page, pausedTarget);
-                run.seekPausedCounts = await currentCounts(page);
-                run.seekPausedExact = await exactPausedFrame(page);
+                await sleep(500);
+                // Current frame (disabled in V4):
+                // run.seekPausedCounts = await currentCounts(page);
+                // run.seekPausedExact = await exactPausedFrame(page);
                 run.seekPaused = analyzeSeek(await takeDraws(page), pausedTarget);
 
                 // Seek while playing (backwards), keep playing.
@@ -203,7 +207,7 @@ try {
                 await sleep(2000);
                 run.seekPlaying = analyzeSeek(await takeDraws(page), playingTarget);
                 await page.click(".playback-button");
-                await currentCounts(page);
+                // Current frame (disabled in V4): await currentCounts(page);
                 runs.push(run);
                 console.error(
                     `${clip} ${backendName} ${rate}fps: ${run.effectiveFps} fps, dropped ${run.sampledDropped}`
@@ -218,14 +222,14 @@ try {
 }
 
 console.log(
-    "| clip | backend | max fps | inference fps | samples dropped | latency ms | pre/infer/post ms | video frames dropped | box lag p50/p95 ms | paused exact | seek stale draws (paused/playing) |"
+    "| clip | backend | max fps | inference fps | samples dropped | latency ms | pre/infer/post ms | video frames dropped | box lag p50/p95 ms | seek stale draws (paused/playing) |"
 );
-console.log("|---|---|---|---|---|---|---|---|---|---|---|");
+console.log("|---|---|---|---|---|---|---|---|---|---|");
 for (const r of runs as Record<string, never>[]) {
     const sp = r.seekPaused as { staleDraws: number };
     const sl = r.seekPlaying as { staleDraws: number; resultsResumed: boolean };
     console.log(
-        `| ${r.clip} | ${r.backend} | ${r.maxFps} | ${r.effectiveFps} | ${r.sampledDropped} | ${r.latencyMs} | ${r.timings} | ${r.videoFramesDropped} | ${r.boxLagMedianMs}/${r.boxLagP95Ms} | ${r.pausedExact && r.seekPausedExact} | ${sp.staleDraws}/${sl.staleDraws}${sl.resultsResumed ? "" : " (no results after seek!)"} |`
+        `| ${r.clip} | ${r.backend} | ${r.maxFps} | ${r.effectiveFps} | ${r.sampledDropped} | ${r.latencyMs} | ${r.timings} | ${r.videoFramesDropped} | ${r.boxLagMedianMs}/${r.boxLagP95Ms} | ${sp.staleDraws}/${sl.staleDraws}${sl.resultsResumed ? "" : " (no results after seek!)"} |`
     );
 }
 console.log("errors:", errors.length ? errors : "none");

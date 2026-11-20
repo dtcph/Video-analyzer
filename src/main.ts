@@ -1,3 +1,5 @@
+import "@fontsource-variable/space-grotesk/wght.css";
+import "./styles/tokens.css";
 import "./styles/main.css";
 import { App } from "./app/App";
 

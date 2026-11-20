@@ -1,6 +1,6 @@
 import { COCO_CLASSES } from "../inference/cocoClasses";
 import type { Detection } from "../inference/postprocess";
-import { LABEL_TEXT_COLOR, classColor } from "./classColors";
+import { classColor, classTextColor } from "./classColors";
 import type { OverlayLayer, OverlayView } from "./OverlayRenderer";
 
 /** A box to draw: a detection, optionally with the ID of the track it belongs to. */
@@ -70,7 +70,7 @@ export class DetectionLayer implements OverlayLayer {
             const ly = b.y - labelHeight >= 0 ? b.y - labelHeight : b.y;
             ctx.fillStyle = color;
             ctx.fillRect(lx, ly, labelWidth, labelHeight);
-            ctx.fillStyle = LABEL_TEXT_COLOR;
+            ctx.fillStyle = classTextColor(d.classId);
             ctx.fillText(label, lx + pad, ly + pad);
         }
     }
