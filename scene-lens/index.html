@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Scene Lens</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <header class="top">
+      <h1>Scene Lens</h1>
+      <p class="lead">Erkennt Objekte in Foto, Video und Kamera, zählt sie und schlägt vor, wo du bist.</p>
+    </header>
+    <main class="layout">
+      <section class="stage-col">
+        <div class="sources">
+          <label class="btn">Foto wählen<input id="file-img" type="file" accept="image/*" hidden /></label>
+          <label class="btn">Video wählen<input id="file-vid" type="file" accept="video/*" hidden /></label>
+          <button class="btn" id="cam">Kamera verbinden</button>
+          <button class="btn ghost" id="open-tm" disabled>Treemap öffnen</button>
+          <span class="status" id="status">Modell wird geladen …</span>
+        </div>
+        <div class="stage" id="stage">
+          <div class="empty" id="empty">Wähle ein Foto, ein Video oder die Kamera.</div>
+          <img id="img" hidden alt="" />
+          <video id="vid" hidden playsinline muted></video>
+          <canvas id="overlay"></canvas>
+        </div>
+        <div class="controls" id="controls" hidden>
+          <button class="btn" id="back" title="10 s zurück">⏪</button>
+          <button class="btn" id="play" title="Leertaste">Pause</button>
+          <button class="btn" id="fwd" title="10 s vor">⏩</button>
+          <button class="btn" id="reset" title="Zurück zum Anfang, Zähler zurücksetzen">Reset</button>
+          <input id="seek" type="range" min="0" max="1000" value="0" />
+          <span class="time" id="time">0:00</span>
+        </div>
+        <div class="conf">
+          <label for="thr">Mindestsicherheit <b id="thr-val">40 %</b></label>
+          <input id="thr" type="range" min="20" max="90" value="40" />
+        </div>
+      </section>
+      <aside class="side">
+        <h2>Zählung</h2>
+        <div class="tabs"><span class="tag">Gesamt</span><span class="tag">Aktuelles Bild</span></div>
+        <ul class="counts" id="counts"><li class="muted">Noch nichts erkannt.</li></ul>
+        <h2>Vorschlag</h2>
+        <div id="scene" class="scene muted">Wird angezeigt, sobald Objekte erkannt sind.</div>
+        <h2>Vergleich</h2>
+        <div id="compare" class="muted">Typische Werte für die vermutete Umgebung erscheinen hier.</div>
+      </aside>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

@@ -1,0 +1,15 @@
+// German display names for the COCO classes the detector knows.
+const DE: Record<string, string> = {
+  person: "Person", bicycle: "Fahrrad", car: "Auto", motorcycle: "Motorrad", airplane: "Flugzeug", bus: "Bus",
+  train: "Zug", truck: "Lkw", boat: "Boot", "traffic light": "Ampel", "fire hydrant": "Hydrant",
+  "stop sign": "Stoppschild", "parking meter": "Parkuhr", bench: "Bank", bird: "Vogel", cat: "Katze", dog: "Hund",
+  horse: "Pferd", backpack: "Rucksack", umbrella: "Regenschirm", handbag: "Handtasche", tie: "Krawatte",
+  suitcase: "Koffer", bottle: "Flasche", "wine glass": "Weinglas", cup: "Tasse", fork: "Gabel", knife: "Messer",
+  spoon: "Löffel", bowl: "Schüssel", banana: "Banane", apple: "Apfel", sandwich: "Sandwich", orange: "Orange",
+  pizza: "Pizza", cake: "Kuchen", chair: "Stuhl", couch: "Sofa", "potted plant": "Zimmerpflanze", bed: "Bett",
+  "dining table": "Esstisch", toilet: "Toilette", tv: "Fernseher", laptop: "Laptop", mouse: "Maus",
+  remote: "Fernbedienung", keyboard: "Tastatur", "cell phone": "Handy", microwave: "Mikrowelle", oven: "Ofen",
+  toaster: "Toaster", sink: "Spüle", refrigerator: "Kühlschrank", book: "Buch", clock: "Uhr", vase: "Vase",
+  scissors: "Schere", "teddy bear": "Teddybär", "hair drier": "Föhn", toothbrush: "Zahnbürste",
+};
+export const label = (name: string): string => DE[name] ?? name;
