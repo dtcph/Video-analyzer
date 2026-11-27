@@ -107,7 +107,7 @@ async function process(): Promise<void> {
   fitOverlay(w, h);
   // video: the tracker's majority class (smoothed over the track) replaces the per-frame class for display and counts
   if (kind !== "image") { const labels = tracker.update(dets); for (const d of dets) d.name = labels.get(d) ?? d.name; }
-  if (facesOn) { refresh(src, dets, paused()); emotions = annotate(dets); } else emotions = new Map();
+  if (facesOn) { await refresh(src, dets, paused()); emotions = annotate(dets); } else emotions = new Map();
   draw(dets);
   current = new Map();
   for (const d of dets) current.set(d.name, (current.get(d.name) ?? 0) + 1);
@@ -143,7 +143,7 @@ function renderFaces(): void {
   if (box.hidden) return;
   const n = new Map<string, number>();
   for (const e of emotions.values()) { const k = e ?? "none"; n.set(k, (n.get(k) ?? 0) + 1); }
-  $("faces-list").innerHTML = ["happy", "neutral", "thoughtful", "surprised", "sad", "angry", "none"].filter((k) => n.has(k))
+  $("faces-list").innerHTML = ["happy", "neutral", "surprised", "sad", "angry", "disgusted", "afraid", "contempt", "uncertain", "none"].filter((k) => n.has(k))
     .map((k) => `<li><span class="n">${t(`emo.${k}`)}</span><span class="v">${n.get(k)}</span></li>`).join("")
     + `<li><span class="n"><b>${t("people.total")}</b></span><span class="v">${emotions.size}</span></li>`;
 }

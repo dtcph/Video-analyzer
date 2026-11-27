@@ -4,8 +4,8 @@
  * every constant below was chosen; each one is backed by a measurement there).
  */
 import type * as Ort from "onnxruntime-web/webgpu";
-import wasmUrl from "onnxruntime-web/ort-wasm-simd-threaded.asyncify.wasm?url";
 import { COCO80 } from "./coco";
+import { createSession, getOrt, type OrtModule } from "./ort";
 
 export interface Det { name: string; score: number; x: number; y: number; w: number; h: number }
 export type Mode = "IMAGE" | "VIDEO";
@@ -21,7 +21,7 @@ export const ADAPTIVE_AREA = 0.6;
 export const BORDER = 0.25;
 const FLOOR = 0.05; // nothing below this is ever returned (eval uses it to see the raw distribution)
 
-let ort: typeof Ort | undefined;
+let ort: OrtModule | undefined;
 let session: Ort.InferenceSession | undefined;
 let threshold = 0.65;
 const canvas = document.createElement("canvas");
@@ -29,18 +29,13 @@ canvas.width = SIZE; canvas.height = SIZE;
 const cx = canvas.getContext("2d", { willReadFrequently: true })!;
 const input = new Float32Array(3 * SIZE * SIZE);
 
-async function create(ep: "webgpu" | "wasm"): Promise<Ort.InferenceSession> {
-  ort ??= await import("onnxruntime-web/webgpu");
-  ort.env.wasm.wasmPaths = { wasm: new URL(wasmUrl, location.href).href };
-  ort.env.logLevel = "error";
-  return ort.InferenceSession.create(MODEL_URL, { executionProviders: [ep], graphOptimizationLevel: "all" });
-}
-
 /** Loads the model; returns the backend in use ("WebGPU" or "WASM"). */
 export async function loadDetector(t: number): Promise<string> {
   threshold = t;
-  try { session = await create("webgpu"); return "WebGPU"; }
-  catch { session = await create("wasm"); return "WASM"; }
+  ort = await getOrt();
+  const r = await createSession(MODEL_URL);
+  session = r.session;
+  return r.backend === "webgpu" ? "WebGPU" : "WASM";
 }
 
 export async function setThreshold(t: number): Promise<void> { threshold = t; }

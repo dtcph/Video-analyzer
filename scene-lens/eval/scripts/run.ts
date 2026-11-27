@@ -70,6 +70,7 @@ if (cmd === "objects") {
   result.rows = rows;
 } else if (cmd === "emotions") {
   result.initObjects = await call("initObjects", APP_THRESHOLD);
+  if (process.env.FACE_MARGIN) await call("setFaceOptions", Number(process.env.FACE_MARGIN), process.env.ALIGN !== "0", process.env.EMO_MODEL, Number(process.env.EMO_SIZE ?? 224));
   result.initFaces = await call("initFaces");
   const rows: unknown[] = [];
   for (const f of images(target)) {
@@ -78,6 +79,13 @@ if (cmd === "objects") {
     rows.push({ file: relative(root, f), chain: chain.persons, fullImage: bs });
     process.stdout.write(".");
   }
+  result.rows = rows;
+} else if (cmd === "ferplus") { // emotion stage alone on FER+ faces (folders = labels)
+  await call("initObjects", APP_THRESHOLD);
+  if (process.env.FACE_MARGIN) await call("setFaceOptions", Number(process.env.FACE_MARGIN), process.env.ALIGN !== "0", process.env.EMO_MODEL, Number(process.env.EMO_SIZE ?? 224));
+  result.initFaces = await call("initFaces");
+  const rows: unknown[] = [];
+  for (const f of images(target)) { rows.push({ file: relative(root, f), label: f.split("/").slice(-2)[0], ...(await call<object>("ferStage", urlOf(f))) }); }
   result.rows = rows;
 } else if (cmd === "record") { // detections of a clip in real time, for offline tracker comparisons
   result.init = await call("initObjects", APP_THRESHOLD);

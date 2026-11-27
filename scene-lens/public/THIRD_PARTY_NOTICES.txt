@@ -11,7 +11,11 @@ This website ships the following third-party software and models.
    (models/face_landmarker.task), Apache License 2.0
    https://github.com/google-ai-edge/mediapipe
 
-3. onnxruntime-web 1.30.0, MIT License, Copyright (c) Microsoft Corporation
+3. HSEmotion facial expression model enet_b0_8_va_mtl (A. V. Savchenko), Apache License 2.0
+   https://github.com/HSE-asavchenko/face-emotion-recognition  ·  file models/enet_b0_8_va_mtl.onnx, unchanged.
+   Trained on AffectNet.
+
+4. onnxruntime-web 1.30.0, MIT License, Copyright (c) Microsoft Corporation
    https://github.com/microsoft/onnxruntime
 
 The Apache License 2.0 text: https://www.apache.org/licenses/LICENSE-2.0
