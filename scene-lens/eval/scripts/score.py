@@ -8,7 +8,7 @@ expected "no K" passes when K is not detected. Evaluated at the app default (0.4
 using the raw list (all detections >= 0.05) of the run.
 Emotions rule: an image is a hit when the expected class is the emotion of one of the detected persons.
 """
-import json, sys
+import json, os, sys
 
 M = json.load(open("eval/fixtures/manifest.json"))
 WRONG = {"dog": {"giraffe", "teddy bear", "bear", "horse", "cow", "sheep", "cat", "zebra", "elephant"}}
@@ -30,16 +30,29 @@ def fmt(ds, limit=4):
 
 
 def objects(run, before):
+    if before:  # before/after, each at its own app default (THR_BEFORE / THR_AFTER env), plus the slider minimum 0.20
+        tb, ta = float(os.environ.get("THR_BEFORE", 0.4)), float(os.environ.get("THR_AFTER", 0.4))
+        rows = {r["file"].split("fixtures/")[1]: r for r in run["rows"]}
+        prev = {r["file"].split("fixtures/")[1]: r for r in before["rows"]}
+        print(f"| Bild | Erwartet | Vorher @{tb:.2f} (Standard) | Nachher @{ta:.2f} (Standard) | OK vorher | OK nachher | Vorher @0.20 | Nachher @0.20 |")
+        print("|---|---|---|---|---|---|---|---|")
+        ok = [0, 0, 0, 0]
+        for k, meta in M["objects"].items():
+            exp = meta["expected"]; a, b = prev[k], rows[k]
+            res = [judge(exp, dets(a, tb)), judge(exp, dets(b, ta)), judge(exp, dets(a, 0.2)), judge(exp, dets(b, 0.2))]
+            ok = [o + r for o, r in zip(ok, res)]
+            yn = lambda v: "ja" if v else "**nein**"
+            print(f"| {k.split('/')[-1][:-4]} | {exp} | {fmt(dets(a, tb))} | {fmt(dets(b, ta))} | {yn(res[0])} | {yn(res[1])} | {fmt(dets(a, 0.2), 3)} | {fmt(dets(b, 0.2), 3)} |")
+        n = len(M["objects"])
+        print(f"\nKorrekt bei Standardschwelle: vorher {ok[0]}/{n}, nachher {ok[1]}/{n}. Beim Regler-Minimum 0.20: vorher {ok[2]}/{n}, nachher {ok[3]}/{n}.")
+        return
     rows = {r["file"].split("fixtures/")[1]: r for r in run["rows"]}
-    prev = {r["file"].split("fixtures/")[1]: r for r in before["rows"]} if before else {}
-    head = "| Bild | Erwartet | " + ("Vorher @0.40 | Vorher @0.20 | " if before else "") + "Ist @0.40 | Ist @0.20 | OK @0.40 | OK @0.20 |"
+    head = "| Bild | Erwartet | Ist @0.40 | Ist @0.20 | OK @0.40 | OK @0.20 |"
     print(head); print("|" + "---|" * (head.count("|") - 1))
     ok = {0.4: 0, 0.2: 0}
     for k, meta in M["objects"].items():
         r = rows[k]; exp = meta["expected"]
         cells = [k.split("/")[-1].replace(".jpg", ""), exp]
-        if before:
-            cells += [fmt(dets(prev[k], 0.4)), fmt(dets(prev[k], 0.2))]
         res = {t: judge(exp, dets(r, t)) for t in (0.4, 0.2)}
         for t in res: ok[t] += res[t]
         cells += [fmt(dets(r, 0.4)), fmt(dets(r, 0.2)), "ja" if res[0.4] else "**nein**", "ja" if res[0.2] else "**nein**"]

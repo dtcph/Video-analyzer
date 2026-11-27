@@ -20,7 +20,7 @@ const setText = (e: HTMLElement, f: () => string): void => { dynamic.set(e, f); 
 
 type Kind = "none" | "image" | "video" | "camera";
 let kind: Kind = "none";
-let ready = false, threshold = 0.4, objectUrl: string | undefined, stream: MediaStream | undefined;
+let ready = false, threshold = 0.65, objectUrl: string | undefined, stream: MediaStream | undefined;
 let cameras: MediaDeviceInfo[] = [], camIndex = 0;
 let current = new Map<string, number>();
 const tracker = new Tracker();
@@ -53,7 +53,7 @@ function resetCounts(): void {
 }
 
 async function show(k: Kind): Promise<void> {
-  stopSources(); kind = k;
+  stopSources(); kind = k; generation++;
   go("analysis"); closeTreemap();
   img.hidden = k !== "image"; vid.hidden = k === "image" || k === "none";
   const video = k === "video", cam = k === "camera";
@@ -66,7 +66,7 @@ async function show(k: Kind): Promise<void> {
 }
 
 function backHome(): void {
-  stopSources(); kind = "none"; resetCounts(); go("home");
+  stopSources(); kind = "none"; generation++; resetCounts(); go("home");
   for (const id of ["file-img", "file-vid"]) $<HTMLInputElement>(id).value = "";
 }
 
@@ -91,20 +91,28 @@ function draw(dets: Det[]): void {
   }
 }
 
-function process(): void {
-  const src = el();
+/** One analysis at a time (inference is async); results of a source that was replaced meanwhile are dropped. */
+let inflight = false, generation = 0, again = false;
+async function process(): Promise<void> {
+  if (inflight) { again = paused(); return; } // a paused frame asked again (e.g. threshold change): redo it afterwards
+  const src = el(), gen = generation;
   const w = src instanceof HTMLVideoElement ? src.videoWidth : src.naturalWidth;
   const h = src instanceof HTMLVideoElement ? src.videoHeight : src.naturalHeight;
   if (!w || !h) return;
+  inflight = true;
+  let dets: Det[];
+  try { dets = await detect(src); } finally { inflight = false; }
+  if (again) { again = false; if (gen === generation) { void process().then(() => render(true)); return; } }
+  if (gen !== generation) return;
   fitOverlay(w, h);
-  const dets = detect(src);
+  // video: the tracker's majority class (smoothed over the track) replaces the per-frame class for display and counts
+  if (kind !== "image") { const labels = tracker.update(dets); for (const d of dets) d.name = labels.get(d) ?? d.name; }
   if (facesOn) { refresh(src, dets, paused()); emotions = annotate(dets); } else emotions = new Map();
   draw(dets);
   current = new Map();
   for (const d of dets) current.set(d.name, (current.get(d.name) ?? 0) + 1);
   history.push(current); if (history.length > 30) history.shift();
   if (kind === "image") { tracker.reset(); for (const [k, v] of current) tracker.totals.set(k, v); }
-  else tracker.update(dets);
 }
 
 const totals = (): Map<string, number> => (kind === "image" ? current : tracker.totals);
@@ -166,7 +174,7 @@ function renderScene(matches: Match[], sm: Map<string, number>): void {
 }
 
 function loop(): void {
-  if (ready && (kind === "video" || kind === "camera") && !vid.paused && !vid.ended && vid.readyState >= 2) { process(); render(); }
+  if (ready && !inflight && (kind === "video" || kind === "camera") && !vid.paused && !vid.ended && vid.readyState >= 2) void process().then(() => render());
   if (kind === "video") {
     time.textContent = `${fmt(vid.currentTime)} / ${fmt(vid.duration || 0)}`;
     if (document.activeElement !== seek && vid.duration) seek.value = String((vid.currentTime / vid.duration) * 1000);
@@ -176,7 +184,7 @@ function loop(): void {
   requestAnimationFrame(loop);
 }
 
-const reanalyse = (): void => { if (ready && kind !== "none" && paused()) { process(); render(true); } };
+const reanalyse = (): void => { if (ready && kind !== "none" && paused()) void process().then(() => render(true)); };
 
 /* ---------- sources ---------- */
 async function openImage(f: File): Promise<void> {

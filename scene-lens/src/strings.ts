@@ -9,7 +9,7 @@ export const STRINGS: Record<string, { en: string; ko: string }> = {
   "about.title": { en: "Why Scene Lens exists", ko: "Scene Lens가 존재하는 이유" },
   "about.text": { en: "Every day a flood of information rushes past us: people, vehicles, objects, moods. Most of it goes unnoticed. Scene Lens makes it visible, so you can see how many things are around you and what that says about the place you are in.", ko: "우리는 매일 쏟아지는 정보 속에 살고 있습니다. 사람, 차량, 사물, 분위기까지, 대부분은 눈치채지 못한 채 지나갑니다. Scene Lens는 이를 눈에 보이게 만들어, 주변에 무엇이 얼마나 있는지, 그리고 그것이 지금 있는 장소에 대해 무엇을 말해 주는지 보여 줍니다." },
   "step.detect": { en: "Detect", ko: "감지" },
-  "step.detect.text": { en: "Google's MediaPipe Object Detector (EfficientDet-Lite2) finds 80 everyday object classes and draws a box around each one, many times per second.", ko: "Google MediaPipe 객체 감지기(EfficientDet-Lite2)가 80가지 일상 사물을 찾아 각각에 박스를 그립니다. 초당 여러 번 실행됩니다." },
+  "step.detect.text": { en: "The D-FINE-M object detector finds 80 everyday object classes and draws a box around each one, many times per second.", ko: "D-FINE-M 객체 감지기가 80가지 일상 사물을 찾아 각각에 박스를 그립니다. 초당 여러 번 실행됩니다." },
   "step.count": { en: "Count", ko: "집계" },
   "step.count.text": { en: "A small tracker follows boxes from frame to frame, so a moving car is counted once. You get a running total and the count of the current frame.", ko: "작은 트래커가 프레임 간 박스를 추적하므로 움직이는 자동차도 한 번만 집계됩니다. 누적 합계와 현재 프레임의 개수를 보여 줍니다." },
   "step.deeper": { en: "Go deeper", ko: "더 깊이" },

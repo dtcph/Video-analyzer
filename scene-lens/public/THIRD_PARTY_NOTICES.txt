@@ -1,0 +1,18 @@
+THIRD-PARTY NOTICES: Scene Lens
+
+This website ships the following third-party software and models.
+
+1. D-FINE-M object detector (Objects365 pre-training, COCO fine-tuning), Apache License 2.0
+   https://github.com/Peterande/D-FINE  ·  ONNX export: https://huggingface.co/onnx-community/dfine_m_obj2coco-ONNX
+   File models/dfine_m_obj2coco.wf16.onnx: weights converted to float16 storage (cast back to float32 in the
+   graph); no other change. Trained on COCO (annotations CC BY 4.0) and Objects365.
+
+2. MediaPipe Tasks Vision 0.10.21 (WebAssembly runtime in wasm/) and the Face Landmarker model
+   (models/face_landmarker.task), Apache License 2.0
+   https://github.com/google-ai-edge/mediapipe
+
+3. onnxruntime-web 1.30.0, MIT License, Copyright (c) Microsoft Corporation
+   https://github.com/microsoft/onnxruntime
+
+The Apache License 2.0 text: https://www.apache.org/licenses/LICENSE-2.0
+The MIT License text: https://opensource.org/license/mit

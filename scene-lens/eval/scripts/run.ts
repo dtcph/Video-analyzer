@@ -79,6 +79,9 @@ if (cmd === "objects") {
     process.stdout.write(".");
   }
   result.rows = rows;
+} else if (cmd === "record") { // detections of a clip in real time, for offline tracker comparisons
+  result.init = await call("initObjects", APP_THRESHOLD);
+  result.frames = await call("recordVideo", urlOf(target));
 } else if (cmd === "fps") {
   result.init = await call("initObjects", APP_THRESHOLD);
   result.fps = await call("videoFps", urlOf(target), 120);

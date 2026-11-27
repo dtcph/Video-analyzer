@@ -31,7 +31,7 @@ const api = {
     await det.setMode("IMAGE");
     await loadImage(url);
     const t0 = performance.now();
-    const dets = det.detect(img);
+    const dets = await det.detect(img);
     return { w: img.naturalWidth, h: img.naturalHeight, ms: ms(t0), dets };
   },
 
@@ -45,7 +45,7 @@ const api = {
   async emotions(url: string): Promise<{ persons: { score: number; area: number; emotion: string | null }[] }> {
     await det.setMode("IMAGE");
     await loadImage(url);
-    const dets = det.detect(img);
+    const dets = await det.detect(img);
     faces.clearFaces();
     faces.refresh(img, dets, true);
     const map = faces.annotate(dets);
@@ -81,13 +81,30 @@ const api = {
     for (let i = 0; i < n + 5; i++) {
       await new Promise((r) => vid.requestVideoFrameCallback(() => r(undefined)));
       const t0 = performance.now();
-      det.detect(vid);
+      await det.detect(vid);
       if (i >= 5) times.push(performance.now() - t0); // first frames warm up the GPU pipeline
     }
     vid.pause();
     times.sort((a, b) => a - b);
     const mean = times.reduce((s, x) => s + x, 0) / times.length;
     return { meanMs: +mean.toFixed(1), p95Ms: +times[Math.floor(times.length * 0.95)].toFixed(1), fps: +(1000 / mean).toFixed(1), w: vid.videoWidth, h: vid.videoHeight };
+  },
+
+  /** Plays a clip in real time like the app (one detect in flight, newest frame next) and records every result. */
+  async recordVideo(url: string): Promise<{ t: number; dets: det.Det[] }[]> {
+    vid.src = url; vid.muted = true;
+    await vid.play();
+    const frames: { t: number; dets: det.Det[] }[] = [];
+    while (!vid.ended) {
+      const got = await new Promise<boolean>((r) => {
+        vid.requestVideoFrameCallback(() => r(true));
+        vid.addEventListener("ended", () => r(false), { once: true }); // no frame callback after the last frame
+      });
+      if (!got) break;
+      const t = vid.currentTime;
+      frames.push({ t, dets: await det.detect(vid) });
+    }
+    return frames;
   },
 };
 
