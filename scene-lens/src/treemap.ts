@@ -35,3 +35,19 @@ export function squarify(items: Item[], w: number, h: number): Rect[] {
   if (row.length) flush();
   return out;
 }
+
+/**
+ * Splits a w × h box into n parts of exactly equal area that fill it without gaps: rows of nearly square
+ * parts, where a row with k parts gets the height k / n. Result in percent of the box.
+ */
+export function unitGrid(n: number, w: number, h: number): { x: number; y: number; w: number; h: number }[] {
+  const rows = Math.min(n, Math.max(1, Math.round(Math.sqrt((n * h) / Math.max(1, w)))));
+  const out: { x: number; y: number; w: number; h: number }[] = [];
+  let y = 0;
+  for (let r = 0; r < rows; r++) {
+    const k = Math.floor(n / rows) + (r < n % rows ? 1 : 0), height = (k / n) * 100;
+    for (let i = 0; i < k; i++) out.push({ x: (i / k) * 100, y, w: 100 / k, h: height });
+    y += height;
+  }
+  return out;
+}

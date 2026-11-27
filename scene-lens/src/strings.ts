@@ -77,6 +77,7 @@ export const STRINGS: Record<string, { en: string; ko: string }> = {
   "tm.total": { en: "Total", ko: "누적" },
   "tm.current": { en: "Current frame", ko: "현재 프레임" },
   "tm.close": { en: "Close", ko: "닫기" },
+  "tm.unit": { en: "1 {n}", ko: "{n} 1{c}" },
   "tm.empty": { en: "No objects yet.", ko: "아직 객체가 없습니다." },
 
   "scene.office": { en: "Office", ko: "사무실" },

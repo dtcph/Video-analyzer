@@ -39,7 +39,7 @@ Dazu Linien `--hair` 1 px und `--rule` 2 px, Radien `--radius` 16 px, `--radius-
 | `xs` | 12/16 | 12/16 | 12/16 | Notizen, Tabellenköpfe, Status, Sprachumschalter, Schrittnummern |
 | `s` | 14/24 | 14/24 | 14/24 | Bedienelemente, Hinweise, Vergleichszeilen |
 | `m` | 16/24 | 16/24 | 16/24 | Fließtext (Body) |
-| `l` | 20/32 | 20/32 | 20/32 | Lead, Markenname, h3, Treemap-Zellen |
+| `l` | 20/32 | 20/32 | 20/32 | Lead, Markenname, h3 |
 | `xl` | 28/40 | 28/40 | 20/32 | h2, Kernaussage, Szenenvorschlag |
 | `2xl` | 40/48 | 40/48 | 28/40 | Modal-Titel |
 | `3xl` | 64/64 | 40/48 | 40/48 | Abschnittstitel „Warum“ |
@@ -69,6 +69,8 @@ Alle Zeilenhöhen, vertikalen Innen- und Außenabstände sowie Bedienhöhen sind
 | Vergleichszeile: Name / Balken / Zahl | 1 / 2 / 1 Spalte des Blocks | dito | dito |
 | Treemap-Panel | Ränder = `--margin`, oben `--header-h + --gutter`, unten `--gutter` | dito | dito |
 
+Treemap-Titel nutzen die Stufen `xs` bis `3xl`. Welche Stufe eine Box bekommt, wählt `src/treemapLabel.ts` nach Boxgröße und Platz; die Werte liest es aus den Tokens.
+
 ## Kopfzeile
 
 Es gibt eine einzige `<header class="site-header">` vor beiden Bildschirmen, sticky, mit Höhe `--header-h`. „Zurück“ und Status gehören zur Analyse. Auf dem Start-Bildschirm sind sie über `body[data-screen="home"]` per `visibility: hidden` ausgeblendet, behalten aber ihren Platz. Höhe, vertikale Position, Abstände und Ausrichtung sind dadurch auf jedem Bildschirm identisch (gemessen mit `eval/scripts/shots.ts`, Datei `header.json`: 64/64/64 px bzw. 96 px auf dem Telefon, Sprachumschalter überall im Abstand `--margin` vom rechten Rand). `main.ts` setzt `data-screen` in `go()`.
@@ -84,4 +86,4 @@ grep -n "grid-template-columns" src/style.css
 node eval/scripts/shots.ts --label check
 ```
 
-Ausnahmen, die keine Layout-Werte sind: `letter-spacing` (em), Inline-Breiten und -Positionen, die aus Daten berechnet werden (Balkenlänge im Vergleich, Treemap-Zellen, Canvas-Overlay über dem Bild).
+Ausnahmen, die keine Layout-Werte sind: `letter-spacing` (em), Inline-Breiten und -Positionen, die aus Daten berechnet werden (Balkenlänge im Vergleich, Treemap-Zellen und ihre Teilflächen, Canvas-Overlay über dem Bild).
