@@ -92,22 +92,29 @@ function draw(dets: Det[]): void {
 }
 
 /** One analysis at a time (inference is async); results of a source that was replaced meanwhile are dropped. */
+/**
+ * One analysis at a time: detection and the face stage share one ONNX runtime, and overlapping runs block it.
+ * Results of a source that was replaced meanwhile are dropped; a paused frame that asked again is redone afterwards.
+ */
 let inflight = false, generation = 0, again = false;
 async function process(): Promise<void> {
-  if (inflight) { again = paused(); return; } // a paused frame asked again (e.g. threshold change): redo it afterwards
+  if (inflight) { again ||= paused(); return; }
   const src = el(), gen = generation;
   const w = src instanceof HTMLVideoElement ? src.videoWidth : src.naturalWidth;
   const h = src instanceof HTMLVideoElement ? src.videoHeight : src.naturalHeight;
   if (!w || !h) return;
   inflight = true;
-  let dets: Det[];
-  try { dets = await detect(src); } finally { inflight = false; }
-  if (again) { again = false; if (gen === generation) { void process().then(() => render(true)); return; } }
+  try { await analyseFrame(src, gen, w, h); } finally { inflight = false; }
+  if (again) { again = false; if (gen === generation && paused()) await process(); }
+}
+
+async function analyseFrame(src: HTMLImageElement | HTMLVideoElement, gen: number, w: number, h: number): Promise<void> {
+  const dets = await detect(src);
   if (gen !== generation) return;
-  fitOverlay(w, h);
   // video: the tracker's majority class (smoothed over the track) replaces the per-frame class for display and counts
   if (kind !== "image") { const labels = tracker.update(dets); for (const d of dets) d.name = labels.get(d) ?? d.name; }
-  if (facesOn) { await refresh(src, dets, paused()); emotions = annotate(dets); } else emotions = new Map();
+  if (facesOn) { await refresh(src, dets, paused()); if (gen !== generation) return; emotions = annotate(dets); } else emotions = new Map();
+  fitOverlay(w, h);
   draw(dets);
   current = new Map();
   for (const d of dets) current.set(d.name, (current.get(d.name) ?? 0) + 1);

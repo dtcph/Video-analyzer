@@ -32,5 +32,13 @@ ok("video plays, timeline visible", await p.$eval("#seek", (e) => !(e as HTMLEle
 await p.keyboard.press("Space"); await new Promise((r) => setTimeout(r, 300));
 ok("space pauses", await p.$eval("#vid", (v) => (v as HTMLVideoElement).paused));
 ok("counts after video", await p.$$eval("#counts li .v", (c) => c.length > 0));
+await up("#file-vid", "eval/.out/moving_handheld.mp4");
+await p.waitForFunction(() => { const v = document.getElementById("vid") as HTMLVideoElement; return !v.paused && v.currentTime > 0.5; }, { timeout: 20000 });
+if (!(await p.$eval("#faces-on", (e) => (e as HTMLInputElement).checked))) await p.click(".switch");
+const t0 = await p.$eval("#vid", (v) => (v as HTMLVideoElement).currentTime);
+await new Promise((r) => setTimeout(r, 3000));
+const alive = await Promise.race([p.$eval("#vid", (v) => (v as HTMLVideoElement).currentTime), new Promise<number>((r) => setTimeout(() => r(-1), 4000))]);
+ok("faces on + playing video: page stays responsive", alive > t0 + 2);
+ok("faces on + video: people listed", await p.$eval("#faces", (e) => !(e as HTMLElement).hidden));
 ok("no page errors", errs.length === 0); if (errs.length) console.log(errs);
 await b.close(); await server.close();

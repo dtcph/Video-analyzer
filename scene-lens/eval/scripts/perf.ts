@@ -107,15 +107,20 @@ async function playback(video: string, faces: boolean): Promise<Record<string, n
   await p.setViewport({ width: 1440, height: 900 });
   await p.goto(URL);
   await p.waitForFunction(() => !!(window as unknown as { __m: { ready?: number } }).__m.ready, { timeout: 120_000 });
+  const log = (m: string): void => { if (process.env.PERF_DEBUG) console.log(`[${new Date().toISOString().slice(11, 19)}] ${m}`); };
+  log("model ready");
   const input = await p.$("#file-vid");
   await (input as unknown as { uploadFile(f: string): Promise<void> }).uploadFile(video);
   await p.waitForFunction(() => { const v = document.getElementById("vid") as HTMLVideoElement; return v.readyState >= 2 && !v.paused; }, { timeout: 30_000 });
+  log("video playing");
   if (faces) {
     await p.click(".switch");
     await p.waitForFunction(() => (document.getElementById("faces-on") as HTMLInputElement).checked && /ready|준비/.test(document.getElementById("status")!.textContent ?? ""), { timeout: 60_000 });
   }
+  log("faces ready");
   await new Promise((r) => setTimeout(r, 1500));
   const before = await procs(b);
+  log("window start");
   const win = await p.evaluate(async () => {
     const v = document.getElementById("vid") as HTMLVideoElement;
     let raf = 0, vf = 0, run = true;
@@ -129,6 +134,7 @@ async function playback(video: string, faces: boolean): Promise<Record<string, n
     const lt = (window as unknown as { __m: { lt: [number, number][] } }).__m.lt.slice(lt0);
     return { sec, loopFps: +(raf / sec).toFixed(1), videoFps: +(vf / sec).toFixed(1), longTasks: lt.length, w: v.videoWidth, h: v.videoHeight };
   });
+  log("window end");
   const after = await procs(b);
   const cpu = (type: string): number => {
     const sum = (ps: typeof before): number => ps.filter((x) => x.type === type).reduce((s, x) => s + x.cpuTime, 0);

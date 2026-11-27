@@ -53,7 +53,7 @@ const fc = face.getContext("2d", { willReadFrequently: true })!;
 let input = new Float32Array(3 * INPUT * INPUT);
 
 /** Draws a region of the source, upscaled so its short side is >= 224 px, into `crop`. */
-function drawRegion(src: HTMLImageElement | HTMLVideoElement, sx: number, sy: number, sw: number, sh: number, clamp = false): void {
+function drawRegion(src: HTMLImageElement | HTMLVideoElement, sx: number, sy: number, sw: number, sh: number, clamp = false): boolean {
   // A padded box of a close-up reaches past the frame. Unclamped, that part stays black (helps the face detector on
   // faces that fill the frame); clamped, the crop ends at the frame edge. analyse() tries both (eval/03-emotionen.md).
   if (clamp) {
@@ -61,10 +61,13 @@ function drawRegion(src: HTMLImageElement | HTMLVideoElement, sx: number, sy: nu
     const x0 = Math.max(0, sx), y0 = Math.max(0, sy), x1 = Math.min(W, sx + sw), y1 = Math.min(H, sy + sh);
     sx = x0; sy = y0; sw = x1 - x0; sh = y1 - y0;
   }
+  if (!(sw >= 8 && sh >= 8)) return false; // nothing usable left of the region (box at the frame edge)
   cc.clearRect(0, 0, crop.width, crop.height);
-  const scale = Math.max(1, INPUT / Math.min(sw, sh));
+  // short side up to 224 px, but the long side never above 2048 px (thin, tall boxes would become huge canvases)
+  const scale = Math.min(Math.max(1, INPUT / Math.min(sw, sh)), Math.max(1, 2048 / Math.max(sw, sh)));
   crop.width = Math.round(sw * scale); crop.height = Math.round(sh * scale);
   cc.drawImage(src, sx, sy, sw, sh, 0, 0, crop.width, crop.height);
+  return true;
 }
 
 /** Landmarks of the face in `crop` (pixels), or undefined. */
@@ -111,7 +114,7 @@ async function analyse(src: HTMLImageElement | HTMLVideoElement, p: Det): Promis
   if (p.h > p.w * 1.4) regions.push([p.x - pad, p.y - pad, p.w + 2 * pad, p.h * 0.4 + pad]);
   regions.push([p.x - pad, p.y - pad, p.w + 2 * pad, p.h + 2 * pad]);
   for (const clamp of [false, true]) for (const [sx, sy, sw, sh] of regions) {
-    drawRegion(src, sx, sy, sw, sh, clamp);
+    if (!drawRegion(src, sx, sy, sw, sh, clamp)) continue;
     const pts = findFace();
     if (pts) return classifyFace(pts);
   }
@@ -191,7 +194,7 @@ export async function classifyWhole(src: HTMLImageElement): Promise<Float32Array
 
 /** Stage on a ready face crop (whole image = face); eval only. */
 export async function classifyImage(src: HTMLImageElement): Promise<Float32Array | null> {
-  drawRegion(src, 0, 0, src.naturalWidth, src.naturalHeight);
+  if (!drawRegion(src, 0, 0, src.naturalWidth, src.naturalHeight)) return null;
   const pts = findFace();
   return pts ? classifyFace(pts) : null;
 }
