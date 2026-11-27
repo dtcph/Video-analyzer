@@ -1,0 +1,10 @@
+{
+  "angry": ["angry man face", "angry woman face", "angry facial expression", "furious face shouting"],
+  "frustrated": ["frustrated man", "frustrated woman", "frustration face", "annoyed face"],
+  "sad": ["sad woman face", "sad man face", "crying face", "sadness facial expression"],
+  "surprised": ["surprised face", "surprised woman", "astonished face", "surprise facial expression"],
+  "disgusted": ["disgusted face", "disgust facial expression", "disgusted woman"],
+  "afraid": ["frightened face", "fear facial expression", "scared woman face", "terrified face"],
+  "happy": ["smiling woman portrait", "laughing man portrait", "happy face smile"],
+  "neutral": ["neutral facial expression", "passport photo portrait", "expressionless face", "headshot portrait man neutral"]
+}

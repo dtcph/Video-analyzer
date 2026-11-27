@@ -1,3 +1,6 @@
 node_modules
 dist
 public/wasm
+eval/pool/
+eval/.out/
+eval/pool-var/
