@@ -16,8 +16,11 @@ async function create(delegate: "GPU" | "CPU", threshold: number): Promise<Objec
 }
 
 export async function loadDetector(threshold: number): Promise<string> {
-  try { detector = await create("GPU", threshold); return "GPU"; }
-  catch { detector = await create("CPU", threshold); return "CPU"; }
+  let used: "GPU" | "CPU" = "GPU";
+  try { detector = await create("GPU", threshold); }
+  catch { used = "CPU"; detector = await create("CPU", threshold); }
+  await detector.setOptions({ runningMode: mode }); // the source may have changed while loading
+  return used;
 }
 
 export async function setThreshold(t: number): Promise<void> { await detector?.setOptions({ scoreThreshold: t }); }

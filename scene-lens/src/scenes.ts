@@ -2,21 +2,21 @@
 export interface Scene { id: string; name: string; hint: string; typical: Record<string, number> }
 
 export const SCENES: Scene[] = [
-  { id: "office", name: "Büro", hint: "Personen, Computer und Büromaterial",
+  { id: "office", name: "Office", hint: "Personen, Computer und Officematerial",
     typical: { person: 5, laptop: 4, keyboard: 4, mouse: 4, tv: 2, chair: 7, cup: 4, "cell phone": 3, book: 3, bottle: 2, "potted plant": 1 } },
-  { id: "classroom", name: "Klassenzimmer", hint: "Viele Personen und Stühle, Bücher, Rucksäcke",
+  { id: "classroom", name: "Classroom", hint: "Many people and chairs, books, backpacks",
     typical: { person: 22, chair: 24, book: 10, backpack: 8, laptop: 4, "cell phone": 4, bottle: 4, clock: 1 } },
-  { id: "street", name: "Öffentliche Straße", hint: "Autos, Fußgänger, Verkehrszeichen",
+  { id: "street", name: "Public street", hint: "Cars, pedestrians, traffic signs",
     typical: { car: 9, person: 4, "traffic light": 2, "stop sign": 1, bicycle: 1, bus: 1, truck: 1, motorcycle: 1, "fire hydrant": 0.5 } },
-  { id: "highway", name: "Autobahn / Kreuzung", hint: "Viele Autos und Lkw, kaum Personen",
+  { id: "highway", name: "Highway / intersection", hint: "Lots of cars and trucks, hardly any people",
     typical: { car: 18, truck: 5, bus: 1, motorcycle: 1, person: 0.3 } },
-  { id: "kitchen", name: "Küche", hint: "Geschirr, Flaschen und Haushaltsgeräte",
+  { id: "kitchen", name: "Kitchen", hint: "Tableware, bottles and appliances",
     typical: { cup: 4, bowl: 3, bottle: 4, refrigerator: 1, oven: 1, sink: 1, microwave: 1, knife: 2, fork: 2, spoon: 2, person: 1, "dining table": 1 } },
-  { id: "living", name: "Wohnzimmer", hint: "Sofa, Fernseher, Pflanzen",
+  { id: "living", name: "Living room", hint: "Sofa, TV, plants",
     typical: { couch: 1.5, tv: 1, chair: 3, "potted plant": 2, remote: 1, book: 4, vase: 1, person: 2, clock: 1 } },
-  { id: "restaurant", name: "Restaurant / Café", hint: "Tische, Stühle, Gäste, Gläser",
+  { id: "restaurant", name: "Restaurant / café", hint: "Tables, chairs, guests, glasses",
     typical: { person: 10, "dining table": 5, chair: 14, cup: 8, "wine glass": 6, bowl: 3, bottle: 5, fork: 6, knife: 6, "cell phone": 3 } },
-  { id: "park", name: "Park / Draußen", hint: "Personen, Bänke, Tiere, Fahrräder",
+  { id: "park", name: "Park / outdoors", hint: "People, benches, animals, bikes",
     typical: { person: 6, bench: 3, dog: 2, bicycle: 2, bird: 3, umbrella: 1, backpack: 2, kite: 0.5 } },
 ];
 
