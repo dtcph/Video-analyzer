@@ -1,5 +1,6 @@
 import { detect, loadDetector, setMode, setThreshold, type Det } from "./detector";
-import { EMOTIONS, NO_FACE, annotate, clearFaces, loadFaces, refresh, type Emotion } from "./faces";
+import { annotate, clearFaces, loadFaces, refresh, type Emotion } from "./faces";
+import { applyStatic, onLang, setLang, t } from "./i18n";
 import { label } from "./labels";
 import { rank, type Match } from "./scenes";
 import { Tracker } from "./tracker";
@@ -10,6 +11,12 @@ const img = $<HTMLImageElement>("img"), vid = $<HTMLVideoElement>("vid"), overla
 const stage = $("stage"), status = $("status"), playBtn = $<HTMLButtonElement>("play");
 const seek = $<HTMLInputElement>("seek"), time = $("time"), homeMsg = $("home-msg");
 const ctx = overlay.getContext("2d")!;
+
+applyStatic();
+
+/** Texts that change at runtime: re-evaluated whenever the language switches. */
+const dynamic = new Map<HTMLElement, () => string>();
+const setText = (e: HTMLElement, f: () => string): void => { dynamic.set(e, f); e.textContent = f(); };
 
 type Kind = "none" | "image" | "video" | "camera";
 let kind: Kind = "none";
@@ -70,7 +77,7 @@ function fitOverlay(w: number, h: number): void {
 }
 
 function draw(dets: Det[]): void {
-  const tag = (d: Det): string => { const e = emotions.get(d); return e ? ` · ${EMOTIONS[e]}` : ""; };
+  const tag = (d: Det): string => { const e = emotions.get(d); return e ? ` · ${t(`emo.${e}`)}` : ""; };
   const lw = Math.max(2, overlay.width / 400), fs = Math.max(12, overlay.width / 55);
   ctx.clearRect(0, 0, overlay.width, overlay.height);
   ctx.font = `600 ${fs}px Inter, system-ui, sans-serif`; ctx.lineWidth = lw; ctx.textBaseline = "top";
@@ -115,7 +122,7 @@ function render(force = false): void {
   const tot = totals(), keys = [...new Set([...tot.keys(), ...current.keys()])].sort((a, b) => (tot.get(b) ?? 0) - (tot.get(a) ?? 0));
   $("counts").innerHTML = keys.length
     ? keys.map((k) => `<li><span class="n">${label(k)}</span><span class="v">${tot.get(k) ?? 0}</span><span class="v cur">${current.get(k) ?? 0}</span></li>`).join("")
-    : `<li class="muted">Nothing detected yet.</li>`;
+    : `<li class="muted">${t("counts.none")}</li>`;
   const sm = smoothed();
   renderScene(rank(sm), sm);
   renderFaces();
@@ -126,35 +133,35 @@ function renderFaces(): void {
   const box = $("faces"); box.hidden = !facesOn || emotions.size === 0;
   if (box.hidden) return;
   const n = new Map<string, number>();
-  for (const e of emotions.values()) { const k = e ? EMOTIONS[e] : NO_FACE; n.set(k, (n.get(k) ?? 0) + 1); }
-  $("faces-list").innerHTML = [...Object.values(EMOTIONS), NO_FACE].filter((k) => n.has(k))
-    .map((k) => `<li><span class="n">${k}</span><span class="v">${n.get(k)}</span></li>`).join("")
-    + `<li><span class="n"><b>People total</b></span><span class="v">${emotions.size}</span></li>`;
+  for (const e of emotions.values()) { const k = e ?? "none"; n.set(k, (n.get(k) ?? 0) + 1); }
+  $("faces-list").innerHTML = ["happy", "neutral", "thoughtful", "surprised", "sad", "angry", "none"].filter((k) => n.has(k))
+    .map((k) => `<li><span class="n">${t(`emo.${k}`)}</span><span class="v">${n.get(k)}</span></li>`).join("")
+    + `<li><span class="n"><b>${t("people.total")}</b></span><span class="v">${emotions.size}</span></li>`;
 }
 
 function renderScene(matches: Match[], sm: Map<string, number>): void {
   const sc = $("scene"), cmp = $("compare");
   if (!matches.length) {
-    sc.className = "scene muted"; sc.textContent = "Appears as soon as objects are detected.";
-    cmp.className = "muted"; cmp.textContent = "Typical values for the guessed place show up here.";
+    sc.className = "scene muted"; sc.textContent = t("sug.empty");
+    cmp.className = "muted"; cmp.textContent = t("cmp.empty");
     return;
   }
   sc.className = "scene";
   const [best, ...rest] = matches;
-  sc.innerHTML = `<div class="best">Probably: ${best.scene.name}</div><p>${best.scene.hint} · match ${Math.round(best.score * 100)} %</p>`
-    + rest.slice(0, 2).map((m) => `<div class="alt"><span>Also possible: ${m.scene.name}</span><span>${Math.round(m.score * 100)} %</span></div>`).join("");
+  sc.innerHTML = `<div class="best">${t("sug.best", { n: t(`scene.${best.scene.id}`) })}</div><p>${t(`scene.${best.scene.id}.hint`)} · ${t("sug.match", { p: Math.round(best.score * 100) })}</p>`
+    + rest.slice(0, 2).map((m) => `<div class="alt"><span>${t("sug.also", { n: t(`scene.${m.scene.id}`) })}</span><span>${Math.round(m.score * 100)} %</span></div>`).join("");
   const typ = best.scene.typical;
   const rows = [...new Set([...Object.keys(typ), ...sm.keys()])]
     .filter((k) => (typ[k] ?? 0) >= 1 || (sm.get(k) ?? 0) >= 0.5)
     .sort((a, b) => Math.max(typ[b] ?? 0, sm.get(b) ?? 0) - Math.max(typ[a] ?? 0, sm.get(a) ?? 0)).slice(0, 8);
   const max = Math.max(1, ...rows.map((k) => Math.max(typ[k] ?? 0, sm.get(k) ?? 0)));
   cmp.className = "";
-  cmp.innerHTML = `<div class="muted" style="font-size:13px;margin-bottom:6px">${best.scene.name}: typical (tick) vs. yours (bar)</div>`
+  cmp.innerHTML = `<div class="muted" style="font-size:13px;margin-bottom:6px">${t("cmp.legend", { n: t(`scene.${best.scene.id}`) })}</div>`
     + rows.map((k) => {
       const y = sm.get(k) ?? 0, t = typ[k] ?? 0;
       return `<div class="cmp-row"><span>${label(k)}</span><div class="bar-track"><i style="width:${(y / max) * 100}%"></i><b style="left:${(t / max) * 100}%"></b></div><span class="num">${y.toFixed(1)} / ${t}</span></div>`;
     }).join("")
-    + `<div class="note">Typical values are rough estimates, not measured statistics.</div>`;
+    + `<div class="note">${t("cmp.note")}</div>`;
 }
 
 function loop(): void {
@@ -163,7 +170,8 @@ function loop(): void {
     time.textContent = `${fmt(vid.currentTime)} / ${fmt(vid.duration || 0)}`;
     if (document.activeElement !== seek && vid.duration) seek.value = String((vid.currentTime / vid.duration) * 1000);
   }
-  playBtn.textContent = vid.paused ? "Play" : "Pause";
+  const pl = t(vid.paused ? "ctl.play" : "ctl.pause");
+  if (playBtn.textContent !== pl) playBtn.textContent = pl;
   requestAnimationFrame(loop);
 }
 
@@ -188,14 +196,14 @@ async function openCamera(deviceId?: string): Promise<void> {
     await show("camera"); stream = s; vid.srcObject = s; await vid.play();
     $("switch-cam").hidden = cameras.length < 2;
   } catch {
-    homeMsg.textContent = "Camera unavailable or permission denied.";
-    if (kind === "camera") status.textContent = "Camera unavailable.";
+    setText(homeMsg, () => t("home.cameraFail"));
+    if (kind === "camera") setText(status, () => t("status.camera"));
   }
 }
 
 $<HTMLInputElement>("file-img").onchange = (e) => { const f = (e.target as HTMLInputElement).files?.[0]; if (f) void openImage(f); };
 $<HTMLInputElement>("file-vid").onchange = (e) => { const f = (e.target as HTMLInputElement).files?.[0]; if (f) void openVideo(f); };
-$("cam").onclick = () => { homeMsg.textContent = "Waiting for camera permission …"; void openCamera(); };
+$("cam").onclick = () => { setText(homeMsg, () => t("home.cameraWait")); void openCamera(); };
 $("switch-cam").onclick = () => { if (cameras.length > 1) void openCamera(cameras[(camIndex + 1) % cameras.length].deviceId); };
 $("back-home").onclick = backHome;
 
@@ -223,14 +231,22 @@ $<HTMLInputElement>("thr").oninput = (e) => {
 $<HTMLInputElement>("faces-on").onchange = async (e) => {
   const box = e.target as HTMLInputElement;
   if (!box.checked) { facesOn = false; emotions = new Map(); reanalyse(); render(true); return; }
-  status.textContent = "Loading face model …";
-  try { await loadFaces(); facesOn = true; status.textContent = "Model ready"; reanalyse(); render(true); }
-  catch (err) { box.checked = false; status.textContent = `Face model failed to load: ${err}`; }
+  setText(status, () => t("status.faceLoading"));
+  try { await loadFaces(); facesOn = true; setText(status, () => t("status.readyShort")); reanalyse(); render(true); }
+  catch (err) { box.checked = false; setText(status, () => t("status.faceFailed", { e: String(err) })); }
 };
 $("open-tm").onclick = () => openTreemap();
 initTreemap();
 
 loadDetector(threshold)
-  .then((d) => { ready = true; status.textContent = `Model ready (${d})`; reanalyse(); })
-  .catch((e) => { status.textContent = `Model failed to load: ${e}`; });
+  .then((d) => { ready = true; setText(status, () => t("status.ready", { d })); reanalyse(); })
+  .catch((e) => { setText(status, () => t("status.failed", { e: String(e) })); });
+setText(status, () => t("status.loading"));
+setText(homeMsg, () => t("home.privacy"));
+render(true);
 requestAnimationFrame(loop);
+
+/* ---------- language ---------- */
+onLang(() => { for (const [e, f] of dynamic) e.textContent = f(); render(true); });
+$("lang-ko").onclick = () => setLang("ko");
+$("lang-en").onclick = () => setLang("en");

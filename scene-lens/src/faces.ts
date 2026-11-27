@@ -3,10 +3,6 @@ import type { Det } from "./detector";
 
 /** Emotion estimate from face blendshapes. No identification, nothing is stored. */
 export type Emotion = "happy" | "neutral" | "surprised" | "sad" | "angry" | "thoughtful";
-export const EMOTIONS: Record<Emotion, string> = {
-  happy: "Happy", neutral: "Neutral", thoughtful: "Thoughtful", surprised: "Surprised", sad: "Sad", angry: "Angry",
-};
-export const NO_FACE = "No visible face";
 
 type Shapes = Record<string, number>;
 const avg = (s: Shapes, a: string, b: string): number => ((s[a] ?? 0) + (s[b] ?? 0)) / 2;

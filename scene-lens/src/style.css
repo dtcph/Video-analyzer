@@ -2,7 +2,7 @@
 * { box-sizing: border-box; }
 [hidden] { display:none !important; }
 html { scroll-behavior:smooth; }
-body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.5 "Inter",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.5 "Inter","Pretendard","Apple SD Gothic Neo","Noto Sans KR","Malgun Gothic",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
 h1 { font-weight:800; letter-spacing:-.045em; margin:0; }
 h2 { font-size:28px; margin:0 0 12px; letter-spacing:-.02em; font-weight:800; }
 h3 { font-size:20px; margin:8px 0; letter-spacing:-.02em; }
@@ -37,7 +37,7 @@ h3 { font-size:20px; margin:8px 0; letter-spacing:-.02em; }
 /* Screen 2 */
 .bar { display:flex; align-items:center; gap:24px; padding:20px 48px; }
 .bar-title { font-size:28px; }
-.status { margin-left:auto; color:var(--muted); font-size:13px; }
+.status { margin-left:auto; margin-right:150px; color:var(--muted); font-size:13px; }
 .grid { display:grid; grid-template-columns:minmax(0,1fr) 380px; gap:48px; padding:8px 48px 0; }
 .stage { position:relative; background:var(--soft); border-radius:16px; overflow:hidden; display:flex; align-items:center; justify-content:center; height:min(62vh,640px); }
 .stage img, .stage video { display:block; max-width:100%; max-height:100%; }
@@ -90,3 +90,13 @@ h3 { font-size:20px; margin:8px 0; letter-spacing:-.02em; }
 .cell.top { background:var(--accent) !important; }
 .empty { padding:24px; color:var(--muted); }
 @keyframes fade { from { opacity:0; } to { opacity:1; } }
+
+:lang(ko) { word-break:keep-all; }
+:lang(ko) h1, :lang(ko) h2, :lang(ko) h3, :lang(ko) .best { letter-spacing:-.01em; }
+:lang(ko) .hero h1 { letter-spacing:-.045em; }
+
+/* Language switch: always visible, top right corner (below the treemap overlay, z-index 10) */
+.lang { position:fixed; top:14px; right:24px; z-index:5; display:flex; padding:3px; gap:2px; background:rgba(255,255,255,.92); border:1px solid var(--line); border-radius:999px; backdrop-filter:blur(6px); }
+.lang button { border:0; background:transparent; color:var(--muted); padding:5px 12px; border-radius:999px; font:600 13px inherit; font-family:inherit; cursor:pointer; }
+.lang button:hover { color:var(--fg); }
+.lang button.on { background:var(--fg); color:#fff; }

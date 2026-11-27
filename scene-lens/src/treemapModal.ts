@@ -1,3 +1,4 @@
+import { t } from "./i18n";
 import { label } from "./labels";
 import { squarify } from "./treemap";
 
@@ -42,7 +43,8 @@ export function updateTreemap(total: Map<string, number>, current: Map<string, n
   if (!rects.length) {
     for (const n of nodes.values()) n.remove();
     nodes.clear();
-    if (!empty) { empty = document.createElement("div"); empty.className = "empty"; empty.textContent = "No objects yet."; map.appendChild(empty); }
+    if (!empty) { empty = document.createElement("div"); empty.className = "empty"; map.appendChild(empty); }
+    empty.textContent = t("tm.empty");
     return;
   }
   empty?.remove();

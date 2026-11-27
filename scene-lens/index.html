@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="ko">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -7,38 +7,44 @@
     <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
+    <!-- Always visible language switch -->
+    <div class="lang" role="group" aria-label="Language">
+      <button id="lang-ko" data-lang="ko" class="on">한국어</button>
+      <button id="lang-en" data-lang="en">English</button>
+    </div>
+
     <!-- Screen 1: start page -->
     <div id="home">
       <section class="hero">
         <h1>Scene Lens</h1>
-        <p class="lead">See what is really in front of you. Detect, count and understand everything in a photo, a video or your camera, right in your browser.</p>
+        <p class="lead" data-i18n="home.lead"></p>
         <div class="choices">
-          <label class="btn big">Upload photo<input id="file-img" type="file" accept="image/*" hidden /></label>
-          <label class="btn big">Upload video<input id="file-vid" type="file" accept="video/*" hidden /></label>
-          <button class="btn big" id="cam">Connect camera</button>
+          <label class="btn big"><span data-i18n="home.photo"></span><input id="file-img" type="file" accept="image/*" hidden /></label>
+          <label class="btn big"><span data-i18n="home.video"></span><input id="file-vid" type="file" accept="video/*" hidden /></label>
+          <button class="btn big" id="cam" data-i18n="home.camera"></button>
         </div>
-        <p class="hint" id="home-msg">Nothing leaves your computer.</p>
-        <a class="scroll" href="#about">Scroll to learn more ↓</a>
+        <p class="hint" id="home-msg"></p>
+        <a class="scroll" href="#about" data-i18n="home.scroll"></a>
       </section>
       <section class="about" id="about">
-        <h2>Why Scene Lens exists</h2>
-        <p class="big-text">Every day a flood of information rushes past us: people, vehicles, objects, moods. Most of it goes unnoticed. Scene Lens makes it visible, so you can see how many things are around you and what that says about the place you are in.</p>
+        <h2 data-i18n="about.title"></h2>
+        <p class="big-text" data-i18n="about.text"></p>
         <div class="steps">
-          <article><span>01</span><h3>Detect</h3><p>Google's MediaPipe Object Detector (EfficientDet-Lite2) finds 80 everyday object classes and draws a box around each one, many times per second.</p></article>
-          <article><span>02</span><h3>Count</h3><p>A small tracker follows boxes from frame to frame, so a moving car is counted once. You get a running total and the count of the current frame.</p></article>
-          <article><span>03</span><h3>Go deeper</h3><p>Optionally, a face landmark model reads facial expressions of detected people and sorts them into moods. Faces that are not visible stay plain "people". No identification, nothing is stored.</p></article>
-          <article><span>04</span><h3>Understand</h3><p>The mix of objects suggests a scene, such as an office, a street or a highway, and is compared with rough typical counts for that place.</p></article>
+          <article><span>01</span><h3 data-i18n="step.detect"></h3><p data-i18n="step.detect.text"></p></article>
+          <article><span>02</span><h3 data-i18n="step.count"></h3><p data-i18n="step.count.text"></p></article>
+          <article><span>03</span><h3 data-i18n="step.deeper"></h3><p data-i18n="step.deeper.text"></p></article>
+          <article><span>04</span><h3 data-i18n="step.understand"></h3><p data-i18n="step.understand.text"></p></article>
         </div>
-        <p class="fine">Everything runs locally in your browser with WebAssembly and WebGPU. No upload, no server, no account. Built for desktop Chrome.</p>
+        <p class="fine" data-i18n="about.fine"></p>
       </section>
     </div>
 
     <!-- Screen 2: analysis -->
     <div id="analysis" hidden>
       <header class="bar">
-        <button class="link" id="back-home">← Back</button>
+        <button class="link" id="back-home" data-i18n="back"></button>
         <h1 class="bar-title">Scene Lens</h1>
-        <span class="status" id="status">Loading model …</span>
+        <span class="status" id="status"></span>
       </header>
       <main class="grid">
         <section class="left">
@@ -48,44 +54,44 @@
             <canvas id="overlay"></canvas>
           </div>
           <div class="controls" id="controls">
-            <button class="btn" id="back" title="Back 10 s">⏪ 10 s</button>
-            <button class="btn" id="play" title="Space">Pause</button>
-            <button class="btn" id="fwd" title="Forward 10 s">10 s ⏩</button>
-            <button class="btn ghost" id="reset" title="Back to start, reset counts">Reset</button>
-            <input id="seek" type="range" min="0" max="1000" value="0" aria-label="Timeline" />
+            <button class="btn" id="back" data-i18n="ctl.back" data-i18n-title="ctl.back.title"></button>
+            <button class="btn" id="play" data-i18n="ctl.pause"></button>
+            <button class="btn" id="fwd" data-i18n="ctl.fwd" data-i18n-title="ctl.fwd.title"></button>
+            <button class="btn ghost" id="reset" data-i18n="ctl.reset" data-i18n-title="ctl.reset.title"></button>
+            <input id="seek" type="range" min="0" max="1000" value="0" data-i18n-aria="ctl.timeline" />
             <span class="time" id="time">0:00</span>
-            <button class="btn ghost" id="switch-cam" hidden>Switch camera</button>
+            <button class="btn ghost" id="switch-cam" data-i18n="ctl.switch" hidden></button>
           </div>
         </section>
         <aside class="right">
           <div class="right-inner">
-            <h2>Settings</h2>
-            <label class="switch"><input type="checkbox" id="faces-on" /><span class="track"></span><span>People &amp; emotions</span></label>
-            <div class="conf"><label for="thr">Confidence <b id="thr-val">40 %</b></label><input id="thr" type="range" min="20" max="90" value="40" /></div>
-            <h2>Counts</h2>
-            <div class="tabs"><span class="tag">Total</span><span class="tag">Now</span></div>
-            <ul class="counts" id="counts"><li class="muted">Nothing detected yet.</li></ul>
-            <button class="btn wide" id="open-tm">Open treemap</button>
+            <h2 data-i18n="set.title"></h2>
+            <label class="switch"><input type="checkbox" id="faces-on" /><span class="track"></span><span data-i18n="set.faces"></span></label>
+            <div class="conf"><label for="thr"><span data-i18n="set.conf"></span> <b id="thr-val">40 %</b></label><input id="thr" type="range" min="20" max="90" value="40" /></div>
+            <h2 data-i18n="counts.title"></h2>
+            <div class="tabs"><span class="tag" data-i18n="counts.total"></span><span class="tag" data-i18n="counts.now"></span></div>
+            <ul class="counts" id="counts"></ul>
+            <button class="btn wide" id="open-tm" data-i18n="tm.open"></button>
           </div>
         </aside>
       </main>
       <section class="results">
         <div id="faces" hidden>
-          <h2>People in detail</h2>
+          <h2 data-i18n="people.title"></h2>
           <ul class="counts" id="faces-list"></ul>
-          <div class="note">Mood is estimated from facial expression. No identification, nothing is stored.</div>
+          <div class="note" data-i18n="people.note"></div>
         </div>
-        <div><h2>Suggestion</h2><div id="scene" class="scene muted">Appears as soon as objects are detected.</div></div>
-        <div><h2>Comparison</h2><div id="compare" class="muted">Typical values for the guessed place show up here.</div></div>
+        <div><h2 data-i18n="sug.title"></h2><div id="scene" class="scene muted"></div></div>
+        <div><h2 data-i18n="cmp.title"></h2><div id="compare" class="muted"></div></div>
       </section>
     </div>
 
     <!-- Treemap overlay -->
     <div id="tm" class="modal" hidden>
-      <div class="panel" id="tm-panel" tabindex="-1" role="dialog" aria-label="Treemap">
-        <button id="tm-close" class="close" aria-label="Close">×</button>
-        <h2>Treemap</h2>
-        <div class="seg"><button id="tm-total" class="on">Total</button><button id="tm-cur">Current frame</button></div>
+      <div class="panel" id="tm-panel" tabindex="-1" role="dialog">
+        <button id="tm-close" class="close" data-i18n-aria="tm.close">×</button>
+        <h2 data-i18n="tm.title"></h2>
+        <div class="seg"><button id="tm-total" class="on" data-i18n="tm.total"></button><button id="tm-cur" data-i18n="tm.current"></button></div>
         <div id="tm-map"></div>
       </div>
     </div>
