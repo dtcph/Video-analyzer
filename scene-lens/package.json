@@ -11,6 +11,7 @@
     "postinstall": "node scripts/copy-wasm.mjs"
   },
   "dependencies": {
+    "@fortawesome/free-solid-svg-icons": "7.3.1",
     "@mediapipe/tasks-vision": "0.10.21",
     "onnxruntime-web": "1.30.0"
   },

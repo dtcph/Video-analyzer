@@ -15,8 +15,23 @@ export async function getOrt(): Promise<OrtModule> {
   return ort;
 }
 
+let queue: Promise<unknown> = Promise.resolve();
+/**
+ * Runs ONNX Runtime work one piece at a time. Creating a session while another one is running crashes the
+ * WebGPU runtime for good (e.g. switching on "People" while a video is being analysed).
+ */
+export function exclusive<T>(work: () => Promise<T>): Promise<T> {
+  const result = queue.then(work);
+  queue = result.catch(() => undefined);
+  return result;
+}
+
 /** Creates a session on WebGPU, falling back to WASM (then every later session uses WASM too). */
-export async function createSession(url: string, dims: Record<string, number> = {}): Promise<{ session: Ort.InferenceSession; backend: "webgpu" | "wasm" }> {
+export function createSession(url: string, dims: Record<string, number> = {}): Promise<{ session: Ort.InferenceSession; backend: "webgpu" | "wasm" }> {
+  return exclusive(() => open(url, dims));
+}
+
+async function open(url: string, dims: Record<string, number>): Promise<{ session: Ort.InferenceSession; backend: "webgpu" | "wasm" }> {
   const o = await getOrt();
   // fixed input sizes (freeDimensionOverrides) let ORT plan static shapes (eval/04-runtime.md)
   const opts = { graphOptimizationLevel: "all" as const, freeDimensionOverrides: (globalThis as { __noDims?: boolean }).__noDims ? {} : dims };

@@ -1,6 +1,8 @@
+import { closeCompare, initCompare, openCompare, resetCompare, updateCompare } from "./compareModal";
 import { detect, loadDetector, setMode, setThreshold, type Det } from "./detector";
 import { annotate, clearFaces, loadFaces, refresh, type Emotion } from "./faces";
 import { applyStatic, onLang, setLang, t } from "./i18n";
+import { applyIcons, setIcon } from "./icons";
 import { label } from "./labels";
 import { rank, type Match } from "./scenes";
 import { Tracker } from "./tracker";
@@ -13,6 +15,7 @@ const seek = $<HTMLInputElement>("seek"), time = $("time"), homeMsg = $("home-ms
 const ctx = overlay.getContext("2d")!;
 
 applyStatic();
+applyIcons();
 
 /** Texts that change at runtime: re-evaluated whenever the language switches. */
 const dynamic = new Map<HTMLElement, () => string>();
@@ -27,6 +30,9 @@ const tracker = new Tracker();
 const history: Map<string, number>[] = [];
 let lastRender = 0;
 let facesOn = false, emotions = new Map<Det, Emotion | null>();
+/** People & emotions: off per source, switched on by the first detected person until the user decides by hand. */
+const facesBox = $<HTMLInputElement>("faces-on");
+let facesAuto = true, faceRequest = 0, faceStatus = false;
 
 const fmt = (s: number): string => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
 const el = (): HTMLImageElement | HTMLVideoElement => (kind === "image" ? img : vid);
@@ -54,8 +60,8 @@ function resetCounts(): void {
 
 async function show(k: Kind): Promise<void> {
   ensureDetector();
-  stopSources(); kind = k; generation++;
-  go("analysis"); closeTreemap();
+  stopSources(); kind = k; generation++; resetFaces();
+  go("analysis"); closeTreemap(); resetCompare();
   img.hidden = k !== "image"; vid.hidden = k === "image" || k === "none";
   const video = k === "video", cam = k === "camera";
   $("controls").hidden = k === "image";
@@ -67,7 +73,7 @@ async function show(k: Kind): Promise<void> {
 }
 
 function backHome(): void {
-  stopSources(); kind = "none"; generation++; resetCounts(); go("home");
+  stopSources(); kind = "none"; generation++; resetFaces(); resetCounts(); go("home");
   for (const id of ["file-img", "file-vid"]) $<HTMLInputElement>(id).value = "";
 }
 
@@ -92,10 +98,10 @@ function draw(dets: Det[]): void {
   }
 }
 
-/** One analysis at a time (inference is async); results of a source that was replaced meanwhile are dropped. */
 /**
  * One analysis at a time: detection and the face stage share one ONNX runtime, and overlapping runs block it.
- * Results of a source that was replaced meanwhile are dropped; a paused frame that asked again is redone afterwards.
+ * Results of a source that was replaced meanwhile are dropped; a paused frame (of the current source) that asked
+ * meanwhile is analysed afterwards.
  */
 let inflight = false, generation = 0, again = false;
 
@@ -107,7 +113,7 @@ async function process(): Promise<void> {
   if (!w || !h) return;
   inflight = true;
   try { await analyseFrame(src, gen, w, h); } finally { inflight = false; }
-  if (again) { again = false; if (gen === generation && paused()) await process(); }
+  if (again) { again = false; if (paused()) await process(); } // also for a source opened meanwhile
 }
 
 async function analyseFrame(src: HTMLImageElement | HTMLVideoElement, gen: number, w: number, h: number): Promise<void> {
@@ -115,6 +121,7 @@ async function analyseFrame(src: HTMLImageElement | HTMLVideoElement, gen: numbe
   if (gen !== generation) return;
   // video: the tracker's majority class (smoothed over the track) replaces the per-frame class for display and counts
   if (kind !== "image") { const labels = tracker.update(dets); for (const d of dets) d.name = labels.get(d) ?? d.name; }
+  if (facesAuto && !facesBox.checked && dets.some((d) => d.name === "person")) void setFaces(true); // loads beside the analysis
   if (facesOn) { await refresh(src, dets, paused()); if (gen !== generation) return; emotions = annotate(dets); } else emotions = new Map();
   fitOverlay(w, h);
   draw(dets);
@@ -133,53 +140,54 @@ function smoothed(): Map<string, number> {
   return m;
 }
 
+const EXPRESSIONS: Emotion[] = ["happy", "neutral", "surprised", "sad", "angry", "disgusted", "afraid", "contempt"];
+
+/** Expressions of the persons in the current frame; no readable face and an unclear one are both null (not recognised). */
+function expressions(): [Emotion | null, number][] {
+  const n = new Map<Emotion | null, number>();
+  for (const e of emotions.values()) { const k = e === "uncertain" ? null : e; n.set(k, (n.get(k) ?? 0) + 1); }
+  return [...EXPRESSIONS, null].filter((k) => n.has(k)).map((k) => [k, n.get(k)!]);
+}
+
+const countRow = (name: string, total: number | "", now: number, sub = false): string =>
+  `<li${sub ? ' class="sub"' : ""}><span class="n">${name}</span><span class="v">${total}</span><span class="v cur">${now}</span></li>`;
+
+/**
+ * Rows of one class. While expressions are estimated, "person" is broken down underneath (current frame only, so the
+ * total column stays empty there); a single person with a single result fits into one row.
+ */
+function countRows(name: string, total: number, now: number): string {
+  const parts = name === "person" ? expressions() : [];
+  if (!parts.length) return countRow(label(name), total, now);
+  const text = (e: Emotion | null): string => t(e ? `emo.${e}` : "emo.none");
+  const withText = (e: Emotion | null): string => t("counts.with", { n: label(name), e: text(e).toLocaleLowerCase() });
+  if (total === 1 && now === 1 && parts.length === 1) return countRow(withText(parts[0][0]), total, now);
+  return countRow(t("counts.sum", { n: label(name) }), total, now)
+    + parts.map(([e, c]) => countRow(e ? withText(e) : text(e), "", c, true)).join("");
+}
+
 function render(force = false): void {
   const now = performance.now();
   if (!force && now - lastRender < 250) return;
   lastRender = now;
   const tot = totals(), keys = [...new Set([...tot.keys(), ...current.keys()])].sort((a, b) => (tot.get(b) ?? 0) - (tot.get(a) ?? 0));
   $("counts").innerHTML = keys.length
-    ? keys.map((k) => `<li><span class="n">${label(k)}</span><span class="v">${tot.get(k) ?? 0}</span><span class="v cur">${current.get(k) ?? 0}</span></li>`).join("")
+    ? keys.map((k) => countRows(k, tot.get(k) ?? 0, current.get(k) ?? 0)).join("")
     : `<li class="muted">${t("counts.none")}</li>`;
   const sm = smoothed();
-  renderScene(rank(sm), sm);
-  renderFaces();
+  const matches = rank(sm);
+  renderScene(matches);
+  updateCompare(matches, sm);
   updateTreemap(tot, current);
 }
 
-function renderFaces(): void {
-  const box = $("faces"); box.hidden = !facesOn || emotions.size === 0;
-  if (box.hidden) return;
-  const n = new Map<string, number>();
-  for (const e of emotions.values()) { const k = e ?? "none"; n.set(k, (n.get(k) ?? 0) + 1); }
-  $("faces-list").innerHTML = ["happy", "neutral", "surprised", "sad", "angry", "disgusted", "afraid", "contempt", "uncertain", "none"].filter((k) => n.has(k))
-    .map((k) => `<li><span class="n">${t(`emo.${k}`)}</span><span class="v">${n.get(k)}</span></li>`).join("")
-    + `<li><span class="n"><b>${t("people.total")}</b></span><span class="v">${emotions.size}</span></li>`;
-}
-
-function renderScene(matches: Match[], sm: Map<string, number>): void {
-  const sc = $("scene"), cmp = $("compare");
-  if (!matches.length) {
-    sc.className = "scene muted"; sc.textContent = t("sug.empty");
-    cmp.className = "muted"; cmp.textContent = t("cmp.empty");
-    return;
-  }
+function renderScene(matches: Match[]): void {
+  const sc = $("scene");
+  if (!matches.length) { sc.className = "scene muted"; sc.textContent = t("sug.empty"); return; }
   sc.className = "scene";
   const [best, ...rest] = matches;
   sc.innerHTML = `<div class="best">${t("sug.best", { n: t(`scene.${best.scene.id}`) })}</div><p>${t(`scene.${best.scene.id}.hint`)} · ${t("sug.match", { p: Math.round(best.score * 100) })}</p>`
     + rest.slice(0, 2).map((m) => `<div class="alt"><span>${t("sug.also", { n: t(`scene.${m.scene.id}`) })}</span><span>${Math.round(m.score * 100)} %</span></div>`).join("");
-  const typ = best.scene.typical;
-  const rows = [...new Set([...Object.keys(typ), ...sm.keys()])]
-    .filter((k) => (typ[k] ?? 0) >= 1 || (sm.get(k) ?? 0) >= 0.5)
-    .sort((a, b) => Math.max(typ[b] ?? 0, sm.get(b) ?? 0) - Math.max(typ[a] ?? 0, sm.get(a) ?? 0)).slice(0, 8);
-  const max = Math.max(1, ...rows.map((k) => Math.max(typ[k] ?? 0, sm.get(k) ?? 0)));
-  cmp.className = "";
-  cmp.innerHTML = `<div class="muted legend">${t("cmp.legend", { n: t(`scene.${best.scene.id}`) })}</div>`
-    + rows.map((k) => {
-      const y = sm.get(k) ?? 0, t = typ[k] ?? 0;
-      return `<div class="cmp-row"><span>${label(k)}</span><div class="bar-track"><i style="width:${(y / max) * 100}%"></i><b style="left:${(t / max) * 100}%"></b></div><span class="num">${y.toFixed(1)} / ${t}</span></div>`;
-    }).join("")
-    + `<div class="note">${t("cmp.note")}</div>`;
 }
 
 function loop(): void {
@@ -188,8 +196,8 @@ function loop(): void {
     time.textContent = `${fmt(vid.currentTime)} / ${fmt(vid.duration || 0)}`;
     if (document.activeElement !== seek && vid.duration) seek.value = String((vid.currentTime / vid.duration) * 1000);
   }
-  const pl = t(vid.paused ? "ctl.play" : "ctl.pause");
-  if (playBtn.textContent !== pl) playBtn.textContent = pl;
+  const state = vid.paused ? "play" : "pause", pl = t(`ctl.${state}`);
+  if ($("play-text").textContent !== pl) { $("play-text").textContent = pl; setIcon($("play-icon"), state); }
   requestAnimationFrame(loop);
 }
 
@@ -234,7 +242,7 @@ $("fwd").onclick = () => seekBy(10);
 $("reset").onclick = () => { vid.currentTime = 0; resetCounts(); void vid.play(); };
 seek.oninput = () => { if (vid.duration) { vid.currentTime = (+seek.value / 1000) * vid.duration; tracker.reset(false); } };
 
-// Space toggles playback anywhere (also while the treemap is open), except on checkboxes.
+// Space toggles playback anywhere (also while a popup is open), except on checkboxes.
 const spaceTarget = (e: KeyboardEvent): boolean => e.code === "Space" && !(e.target instanceof HTMLInputElement && e.target.type === "checkbox");
 document.addEventListener("keydown", (e) => { if (spaceTarget(e)) { e.preventDefault(); if (!e.repeat) togglePlay(); } });
 document.addEventListener("keyup", (e) => { if (spaceTarget(e)) e.preventDefault(); });
@@ -246,15 +254,39 @@ $<HTMLInputElement>("thr").oninput = (e) => {
   threshold = +(e.target as HTMLInputElement).value / 100; $("thr-val").textContent = `${Math.round(threshold * 100)} %`;
   void setThreshold(threshold).then(reanalyse);
 };
-$<HTMLInputElement>("faces-on").onchange = async (e) => {
-  const box = e.target as HTMLInputElement;
-  if (!box.checked) { facesOn = false; emotions = new Map(); reanalyse(); render(true); return; }
-  setText(status, () => t("status.faceLoading"));
-  try { await loadFaces(); facesOn = true; setText(status, () => t("status.readyShort")); reanalyse(); render(true); }
-  catch (err) { box.checked = false; setText(status, () => t("status.faceFailed", { e: String(err) })); }
-};
-$("open-tm").onclick = () => openTreemap();
+/** Replaces a face-model message in the header once it no longer applies. */
+function clearFaceStatus(): void {
+  if (faceStatus) setText(status, () => t(ready ? "status.readyShort" : "status.loading"));
+  faceStatus = false;
+}
+
+/** A newer call (manual switch, new source) wins over a model load that is still running. */
+async function setFaces(on: boolean): Promise<void> {
+  const request = ++faceRequest;
+  facesBox.checked = on;
+  if (!on) { facesOn = false; emotions = new Map(); clearFaceStatus(); reanalyse(); render(true); return; }
+  faceStatus = true; setText(status, () => t("status.faceLoading"));
+  try {
+    await loadFaces();
+    if (request !== faceRequest) return;
+    facesOn = true; clearFaceStatus(); reanalyse(); render(true);
+  } catch (err) {
+    if (request !== faceRequest) return;
+    facesBox.checked = false; facesAuto = false; // no retry on every frame
+    setText(status, () => t("status.faceFailed", { e: String(err) }));
+  }
+}
+
+function resetFaces(): void {
+  faceRequest++; facesAuto = true; facesOn = false; facesBox.checked = false;
+  clearFaceStatus();
+}
+
+facesBox.onchange = () => { facesAuto = false; void setFaces(facesBox.checked); };
+$("open-tm").onclick = () => { closeCompare(); openTreemap(); };
+$("open-cmp").onclick = () => openCompare();
 initTreemap();
+initCompare();
 
 let detectorLoading: Promise<void> | undefined;
 /** Lazy (eval/04-runtime.md): the detector loads when a source is chosen, or earlier when pointer or focus reaches the choices. */

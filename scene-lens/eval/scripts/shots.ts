@@ -44,6 +44,10 @@ for (const width of [375, 768, 1280, 1920]) {
   await new Promise((r) => setTimeout(r, 500));
   await page.screenshot({ path: `${out}/${width}-3-analysis.png`, fullPage: true });
   report[`${width}-analysis`] = await page.evaluate(header);
+  await page.click("#open-cmp");
+  await new Promise((r) => setTimeout(r, 400));
+  await page.screenshot({ path: `${out}/${width}-5-compare.png` });
+  await page.click("#cmp-close");
   await page.click("#open-tm");
   await new Promise((r) => setTimeout(r, 600));
   await page.screenshot({ path: `${out}/${width}-4-treemap.png` });

@@ -5,7 +5,7 @@
  */
 import type * as Ort from "onnxruntime-web/jspi";
 import { COCO80 } from "./coco";
-import { createSession, getOrt, type OrtModule } from "./ort";
+import { createSession, getOrt, type OrtModule, exclusive } from "./ort";
 
 export interface Det { name: string; score: number; x: number; y: number; w: number; h: number }
 export type Mode = "IMAGE" | "VIDEO";
@@ -53,7 +53,7 @@ async function infer(src: HTMLImageElement | HTMLVideoElement, W: number, H: num
   const rgba = cx.getImageData(0, 0, SIZE, SIZE).data, n = SIZE * SIZE;
   for (let i = 0, p = 0; i < n; i++, p += 4) { input[i] = rgba[p] / 255; input[n + i] = rgba[p + 1] / 255; input[2 * n + i] = rgba[p + 2] / 255; }
   const t1 = performance.now();
-  const res = await session!.run({ [session!.inputNames[0]]: new ort!.Tensor("float32", input, [1, 3, SIZE, SIZE]) });
+  const res = await exclusive(() => session!.run({ [session!.inputNames[0]]: new ort!.Tensor("float32", input, [1, 3, SIZE, SIZE]) }));
   const t2 = performance.now();
   const L = res.logits.data as Float32Array, B = res.pred_boxes.data as Float32Array;
   const [, q, nc] = res.logits.dims as number[];

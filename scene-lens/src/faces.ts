@@ -7,7 +7,7 @@
 import { FaceLandmarker, FilesetResolver } from "@mediapipe/tasks-vision";
 import type * as Ort from "onnxruntime-web/jspi";
 import type { Det } from "./detector";
-import { createSession, getOrt } from "./ort";
+import { createSession, exclusive, getOrt } from "./ort";
 
 /** Model output order (hsemotion_onnx idx_to_class for 8-class models). */
 export const EMOTIONS = ["angry", "contempt", "disgusted", "afraid", "happy", "neutral", "sad", "surprised"] as const;
@@ -100,7 +100,7 @@ async function classifyFace(pts: { x: number; y: number }[]): Promise<Float32Arr
   const mean = [0.485, 0.456, 0.406], std = [0.229, 0.224, 0.225];
   for (let i = 0, p = 0; i < n; i++, p += 4) for (let c = 0; c < 3; c++) input[c * n + i] = (d[p + c] / 255 - mean[c]) / std[c];
   const ort = await getOrt();
-  const out = (await session!.run({ [session!.inputNames[0]]: new ort.Tensor("float32", input, [1, 3, INPUT, INPUT]) }))[session!.outputNames[0]];
+  const out = (await exclusive(() => session!.run({ [session!.inputNames[0]]: new ort.Tensor("float32", input, [1, 3, INPUT, INPUT]) })))[session!.outputNames[0]];
   const logits = out.data as Float32Array, m = Math.max(...logits);
   const e = logits.slice(0, EMOTIONS.length).map((v) => Math.exp(v - m)), sum = e.reduce((s, v) => s + v, 0);
   return e.map((v) => v / sum);

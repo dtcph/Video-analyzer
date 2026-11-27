@@ -1,10 +1,10 @@
 # Grid-Vertrag (Scene Lens)
 
-Ein Grid für alle Bildschirme (Start, Analyse, Treemap-Modal). Die einzige Quelle ist der Token-Block am Anfang von `src/style.css` (`:root` und die beiden Breakpoint-Überschreibungen). Komponenten verwenden ausschließlich `var(--…)` und Spaltenspannen. Feste px-Werte für Abstände, Schriftgrößen oder Spalten kommen außerhalb dieses Blocks nicht vor. Prüfbefehl siehe unten.
+Ein Grid für alle Bildschirme (Start, Analyse, Popups für Treemap und Vergleich). Die einzige Quelle ist der Token-Block am Anfang von `src/style.css` (`:root` und die beiden Breakpoint-Überschreibungen). Komponenten verwenden ausschließlich `var(--…)` und Spaltenspannen. Feste px-Werte für Abstände, Schriftgrößen oder Spalten kommen außerhalb dieses Blocks nicht vor. Prüfbefehl siehe unten.
 
 ## Entscheidung
 
-Swiss Style heißt hier: ein modulares Spaltenraster mit festen Rändern, eine linke Satzkante für alle Bildschirme, ein 8-px-Grundlinienraster und wenige feste Schriftstufen statt fließender `clamp()`-Größen. Die Spaltenzahlen 12 / 8 / 4 teilen sich ohne Rest durch 4. Dadurch funktionieren die zwei Grundmodule der App, Bühne + Seitenleiste (8 + 4) und die Ergebnisblöcke (je 4), an allen Breiten ohne Sonderfälle.
+Swiss Style heißt hier: ein modulares Spaltenraster mit festen Rändern, eine linke Satzkante für alle Bildschirme, ein 8-px-Grundlinienraster und wenige feste Schriftstufen statt fließender `clamp()`-Größen. Die Spaltenzahlen 12 / 8 / 4 teilen sich ohne Rest durch 4. Dadurch funktionieren das Grundmodul der App, Bühne + rechte Spalte (8 + 4), an allen Breiten ohne Sonderfälle.
 
 ## Spalten, Gutter, Ränder
 
@@ -14,7 +14,7 @@ Swiss Style heißt hier: ein modulares Spaltenraster mit festen Rändern, eine l
 | 600–1023 px (Tablet) | 8 | 24 px | 32 px | 64 px (1 Zeile) |
 | < 600 px (Telefon) | 4 | 16 px | 16 px | 96 px (2 Zeilen à 48) |
 
-Das Raster ist die Klasse `.grid`: `grid-template-columns: repeat(var(--cols), minmax(0, 1fr)); column-gap: var(--gutter); padding-inline: var(--margin)`. Verschachtelte Bereiche (`.steps`, Ergebnisblöcke, Vergleichszeilen) übernehmen die Spalten per `subgrid` und definieren keine eigenen. Die Breakpoints 600 und 1024 sind die einzigen Media-Query-Werte (`max-width: 1023px`, `max-width: 599px`). Custom Properties sind in Media Queries nicht erlaubt, deshalb stehen die Zahlen dort direkt.
+Das Raster ist die Klasse `.grid`: `grid-template-columns: repeat(var(--cols), minmax(0, 1fr)); column-gap: var(--gutter); padding-inline: var(--margin)`. Verschachtelte Bereiche (`.steps`, Vergleichs-Popup und seine Zeilen) übernehmen die Spalten per `subgrid` und definieren keine eigenen. Die Breakpoints 600 und 1024 sind die einzigen Media-Query-Werte (`max-width: 1023px`, `max-width: 599px`). Custom Properties sind in Media Queries nicht erlaubt, deshalb stehen die Zahlen dort direkt.
 
 ## Abstandsskala (Grundeinheit `--u` = 8 px)
 
@@ -64,9 +64,9 @@ Alle Zeilenhöhen, vertikalen Innen- und Außenabstände sowie Bedienhöhen sind
 | „Warum“-Titel, Kernaussage | 1–8 | 1–8 | 1–4 |
 | vier Schritte | je 3 | je 4 (2 × 2) | je 4 (untereinander) |
 | Bühne | 1–8 | 1–8 | 1–4 |
-| Seitenleiste (Einstellungen, Zählung) | 9–12, Höhe = Bühne | 1–8, darunter | 1–4, darunter |
-| Ergebnisblöcke (Personen, Vorschlag, Vergleich) | je 4 | je 4 | je 4 (untereinander) |
-| Vergleichszeile: Name / Balken / Zahl | 1 / 2 / 1 Spalte des Blocks | dito | dito |
+| Rechte Spalte: Einstellungen (zugeklappt, Kopfzeile `--control-h`), Zählung, Vorschlag, Knöpfe „Vergleich“ und „Treemap“ | 9–12, neben der Bühne | 1–8, darunter | 1–4, darunter |
+| Vergleichs-Popup (Panel) | 3–10 | 1–8 | 1–4 |
+| Vergleichszeile: Name / Balken / Zahl (Subgrid des Panels) | 2 / 5 / 1 | 2 / 4 / 2 | 1 / 2 / 1 |
 | Treemap-Panel | Ränder = `--margin`, oben `--header-h + --gutter`, unten `--gutter` | dito | dito |
 
 Treemap-Titel nutzen die Stufen `xs` bis `3xl`. Welche Stufe eine Box bekommt, wählt `src/treemapLabel.ts` nach Boxgröße und Platz; die Werte liest es aus den Tokens.
@@ -86,4 +86,4 @@ grep -n "grid-template-columns" src/style.css
 node eval/scripts/shots.ts --label check
 ```
 
-Ausnahmen, die keine Layout-Werte sind: `letter-spacing` (em), Inline-Breiten und -Positionen, die aus Daten berechnet werden (Balkenlänge im Vergleich, Treemap-Zellen und ihre Teilflächen, Canvas-Overlay über dem Bild).
+Ausnahmen, die keine Layout-Werte sind: `letter-spacing` (em), Inline-Breiten und -Positionen, die aus Daten berechnet werden (Balkenlänge im Vergleich, Treemap-Zellen und ihre Teilflächen, Höhe der Zählliste (5 × `--control-h`), Canvas-Overlay über dem Bild).
