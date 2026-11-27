@@ -31,7 +31,7 @@ for (const width of [375, 768, 1280, 1920]) {
   const page = await browser.newPage();
   await page.setViewport({ width, height: width === 375 ? 812 : 900 });
   await page.goto("http://localhost:5192/");
-  await page.waitForFunction(() => /ready|준비/.test(document.getElementById("status")?.textContent ?? ""), { timeout: 60_000 });
+  await new Promise((r) => setTimeout(r, 800)); // the detector loads lazily (with the first source)
   await page.evaluate(() => document.documentElement.style.setProperty("scroll-behavior", "auto"));
   await page.screenshot({ path: `${out}/${width}-1-home.png` });
   report[`${width}-home`] = await page.evaluate(header);
@@ -40,7 +40,7 @@ for (const width of [375, 768, 1280, 1920]) {
   await page.evaluate(() => window.scrollTo(0, 0));
   const input = await page.$("#file-img");
   await (input as unknown as { uploadFile(f: string): Promise<void> }).uploadFile(resolve("eval/fixtures/objects/ctl-car.jpg"));
-  await page.waitForFunction(() => document.querySelectorAll("#counts li .v").length > 0, { timeout: 30_000 });
+  await page.waitForFunction(() => document.querySelectorAll("#counts li .v").length > 0, { timeout: 60_000 });
   await new Promise((r) => setTimeout(r, 500));
   await page.screenshot({ path: `${out}/${width}-3-analysis.png`, fullPage: true });
   report[`${width}-analysis`] = await page.evaluate(header);
