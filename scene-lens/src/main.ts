@@ -35,6 +35,7 @@ const paused = (): boolean => kind === "image" || vid.paused;
 /* ---------- screens ---------- */
 function go(screen: "home" | "analysis"): void {
   $("home").hidden = screen !== "home"; $("analysis").hidden = screen !== "analysis";
+  document.body.dataset.screen = screen; // the shared header shows back/status only on the analysis screen
   window.scrollTo(0, 0);
 }
 
@@ -156,7 +157,7 @@ function renderScene(matches: Match[], sm: Map<string, number>): void {
     .sort((a, b) => Math.max(typ[b] ?? 0, sm.get(b) ?? 0) - Math.max(typ[a] ?? 0, sm.get(a) ?? 0)).slice(0, 8);
   const max = Math.max(1, ...rows.map((k) => Math.max(typ[k] ?? 0, sm.get(k) ?? 0)));
   cmp.className = "";
-  cmp.innerHTML = `<div class="muted" style="font-size:13px;margin-bottom:6px">${t("cmp.legend", { n: t(`scene.${best.scene.id}`) })}</div>`
+  cmp.innerHTML = `<div class="muted legend">${t("cmp.legend", { n: t(`scene.${best.scene.id}`) })}</div>`
     + rows.map((k) => {
       const y = sm.get(k) ?? 0, t = typ[k] ?? 0;
       return `<div class="cmp-row"><span>${label(k)}</span><div class="bar-track"><i style="width:${(y / max) * 100}%"></i><b style="left:${(t / max) * 100}%"></b></div><span class="num">${y.toFixed(1)} / ${t}</span></div>`;
