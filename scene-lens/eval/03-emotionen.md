@@ -42,7 +42,7 @@ Testdaten:
 | neutral | Regel → ja (Neutral) | ja → ja | 2/3 \| 18/60 | 2/3 \| 23/60 |
 | (Verachtung) | nein → ja (Contempt) | nein → ja | nicht gefordert, nicht getestet | – |
 | (nachdenklich) | Regel → entfällt | ja → nein | nicht in Testdaten | – |
-| **gesamt** | | | **6/23 \| 84/420 (20,0 %)** | **17/23 \| 266/420 (63,3 %)** |
+| **gesamt** | 5 Regelklassen → 8 Modellklassen | 6 → 8 Klassen (+ „Unklar“) | **6/23 \| 84/420 (20,0 %)** | **17/23 \| 266/420 (63,3 %)** |
 
 Vorher/Nachher je Referenzbild (`score.py emotions eval/.out/emotions-phase3.json eval/.out/emotions-baseline.json`):
 
