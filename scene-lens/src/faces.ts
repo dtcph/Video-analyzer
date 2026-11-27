@@ -5,7 +5,7 @@
  * results of the same person → class. No identification, nothing is stored.
  */
 import { FaceLandmarker, FilesetResolver } from "@mediapipe/tasks-vision";
-import type * as Ort from "onnxruntime-web/webgpu";
+import type * as Ort from "onnxruntime-web/jspi";
 import type { Det } from "./detector";
 import { createSession, getOrt } from "./ort";
 
@@ -13,7 +13,7 @@ import { createSession, getOrt } from "./ort";
 export const EMOTIONS = ["angry", "contempt", "disgusted", "afraid", "happy", "neutral", "sad", "surprised"] as const;
 export type Emotion = (typeof EMOTIONS)[number] | "uncertain";
 
-export let EMOTION_MODEL_URL = `${import.meta.env.BASE_URL}models/enet_b0_8_va_mtl.onnx`;
+export let EMOTION_MODEL_URL = `${import.meta.env.BASE_URL}models/enet_b0_8_va_mtl.wf16.onnx`;
 let INPUT = 224;
 /** Square face crop = landmark extent × (1 + 2 × FACE_MARGIN). */
 export let FACE_MARGIN = 0.1;
@@ -40,7 +40,7 @@ export function loadFaces(): Promise<void> {
       runningMode: "IMAGE", numFaces: 1, minFaceDetectionConfidence: 0.3, minFacePresenceConfidence: 0.3,
     });
     landmarker = await make("GPU").catch(() => make("CPU"));
-    session = (await createSession(EMOTION_MODEL_URL)).session;
+    session = (await createSession(EMOTION_MODEL_URL, { batch_size: 1 })).session;
   })().catch((e) => { loading = undefined; throw e; });
   return loading;
 }

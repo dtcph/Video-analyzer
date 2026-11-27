@@ -28,6 +28,7 @@ const page = await browser.newPage();
 const errors: string[] = [];
 page.on("pageerror", (e) => errors.push(String(e)));
 page.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
+if (process.env.NO_DIMS) await page.evaluateOnNewDocument(() => { (globalThis as { __noDims?: boolean }).__noDims = true; });
 await page.goto("http://localhost:5190/eval.html");
 await page.waitForFunction(() => document.title === "eval ready", { timeout: 60_000 });
 

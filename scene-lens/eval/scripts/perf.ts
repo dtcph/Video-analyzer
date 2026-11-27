@@ -45,11 +45,15 @@ bundle.total = files.reduce((s, f) => s + f.bytes, 0);
 
 // ---------- server ----------
 const server = await preview({ preview: { port: 5191, strictPort: true }, logLevel: "warn" });
-const URL = "http://localhost:5191/";
+const URL = "http://localhost:5191/" + (process.env.PERF_QUERY ?? "");
 
 const instrument = (page: Page): Promise<unknown> => page.evaluateOnNewDocument(() => {
   const w = window as unknown as { __m: { lt: [number, number][]; ready?: number } };
   w.__m = { lt: [] };
+  // count analyses: the app clears the overlay canvas once per drawn analysis
+  const cr = CanvasRenderingContext2D.prototype.clearRect;
+  (w as unknown as { __draws: number }).__draws = 0;
+  CanvasRenderingContext2D.prototype.clearRect = function (...a: [number, number, number, number]) { if (this.canvas.id === "overlay") (w as unknown as { __draws: number }).__draws++; return cr.apply(this, a); };
   new PerformanceObserver((l) => { for (const e of l.getEntries()) w.__m.lt.push([e.startTime, e.startTime + e.duration]); }).observe({ type: "longtask", buffered: true });
   document.addEventListener("DOMContentLoaded", () => {
     const s = document.getElementById("status")!;
@@ -59,7 +63,7 @@ const instrument = (page: Page): Promise<unknown> => page.evaluateOnNewDocument(
 });
 
 async function loadMetrics(page: Page): Promise<Record<string, number>> {
-  await page.waitForFunction(() => !!(window as unknown as { __m: { ready?: number } }).__m.ready, { timeout: 120_000 });
+  if (!process.env.PERF_NO_READY) await page.waitForFunction(() => !!(window as unknown as { __m: { ready?: number } }).__m.ready, { timeout: 120_000 });
   await new Promise((r) => setTimeout(r, 5500)); // the 5 s quiet window for TTI
   return page.evaluate(() => {
     const m = (window as unknown as { __m: { lt: [number, number][]; ready: number } }).__m;
@@ -68,7 +72,7 @@ async function loadMetrics(page: Page): Promise<Record<string, number>> {
     let tti = Math.max(fcp, nav.domContentLoadedEventEnd);
     const lts = m.lt.filter((x) => x[1] > fcp).sort((a, b) => a[0] - b[0]);
     for (const [s, e] of lts) if (s - tti < 5000) tti = Math.max(tti, e); else break;
-    return { fcp: Math.round(fcp), dcl: Math.round(nav.domContentLoadedEventEnd), modelReady: Math.round(m.ready), tti: Math.round(tti),
+    return { fcp: Math.round(fcp), dcl: Math.round(nav.domContentLoadedEventEnd), modelReady: Math.round(m.ready ?? -1), tti: Math.round(tti),
       longTasks: lts.length, longTaskMs: Math.round(lts.reduce((s, [a, b]) => s + b - a, 0)), transferKB: Math.round(performance.getEntriesByType("resource").reduce((s, r) => s + (r as PerformanceResourceTiming).transferSize, nav.transferSize) / 1024) };
   });
 }
@@ -106,12 +110,12 @@ async function playback(video: string, faces: boolean): Promise<Record<string, n
   const p = await b.newPage(); await instrument(p);
   await p.setViewport({ width: 1440, height: 900 });
   await p.goto(URL);
-  await p.waitForFunction(() => !!(window as unknown as { __m: { ready?: number } }).__m.ready, { timeout: 120_000 });
   const log = (m: string): void => { if (process.env.PERF_DEBUG) console.log(`[${new Date().toISOString().slice(11, 19)}] ${m}`); };
   log("model ready");
   const input = await p.$("#file-vid");
   await (input as unknown as { uploadFile(f: string): Promise<void> }).uploadFile(video);
   await p.waitForFunction(() => { const v = document.getElementById("vid") as HTMLVideoElement; return v.readyState >= 2 && !v.paused; }, { timeout: 30_000 });
+  await p.waitForFunction(() => !!(window as unknown as { __m: { ready?: number } }).__m.ready, { timeout: 120_000 }); // lazy: the model loads with the first source
   log("video playing");
   if (faces) {
     await p.click(".switch");
@@ -120,6 +124,7 @@ async function playback(video: string, faces: boolean): Promise<Record<string, n
   log("faces ready");
   await new Promise((r) => setTimeout(r, 1500));
   const before = await procs(b);
+  const m0 = await p.metrics();
   log("window start");
   const win = await p.evaluate(async () => {
     const v = document.getElementById("vid") as HTMLVideoElement;
@@ -127,15 +132,17 @@ async function playback(video: string, faces: boolean): Promise<Record<string, n
     const tick = (): void => { if (!run) return; raf++; requestAnimationFrame(tick); };
     const vtick = (): void => { if (!run) return; vf++; v.requestVideoFrameCallback(vtick); };
     requestAnimationFrame(tick); v.requestVideoFrameCallback(vtick);
-    const t0 = performance.now(), lt0 = (window as unknown as { __m: { lt: unknown[] } }).__m.lt.length;
+    const t0 = performance.now(), lt0 = (window as unknown as { __m: { lt: unknown[] } }).__m.lt.length, d0 = (window as unknown as { __draws: number }).__draws;
     await new Promise((r) => setTimeout(r, 8000));
     run = false;
     const sec = (performance.now() - t0) / 1000;
     const lt = (window as unknown as { __m: { lt: [number, number][] } }).__m.lt.slice(lt0);
-    return { sec, loopFps: +(raf / sec).toFixed(1), videoFps: +(vf / sec).toFixed(1), longTasks: lt.length, w: v.videoWidth, h: v.videoHeight };
+    return { sec, loopFps: +(raf / sec).toFixed(1), analysesPerSec: +(((window as unknown as { __draws: number }).__draws - d0) / sec).toFixed(1), videoFps: +(vf / sec).toFixed(1), longTasks: lt.length, w: v.videoWidth, h: v.videoHeight };
   });
   log("window end");
   const after = await procs(b);
+  const m1 = await p.metrics();
+  const mainBusyPct = +((((m1.TaskDuration ?? 0) - (m0.TaskDuration ?? 0)) / 8) * 100).toFixed(0), scriptPct = +((((m1.ScriptDuration ?? 0) - (m0.ScriptDuration ?? 0)) / 8) * 100).toFixed(0);
   const cpu = (type: string): number => {
     const sum = (ps: typeof before): number => ps.filter((x) => x.type === type).reduce((s, x) => s + x.cpuTime, 0);
     return +(((sum(after) - sum(before)) / win.sec) * 100).toFixed(0);
@@ -146,10 +153,10 @@ async function playback(video: string, faces: boolean): Promise<Record<string, n
   const renderer = after.filter((x) => x.type === "renderer").map((x) => rssMB(x.id)).reduce((s, x) => s + x, 0);
   const gpu = after.filter((x) => x.type === "GPU").map((x) => rssMB(x.id)).reduce((s, x) => s + x, 0);
   await b.close();
-  return { video: video.split("/").pop()!, faces: String(faces), ...win, cpuRendererPct: cpu("renderer"), cpuGpuProcPct: cpu("GPU"), jsHeapMB: Math.round(heap / 1048576), rendererRssMB: renderer, gpuRssMB: gpu };
+  return { video: video.split("/").pop()!, faces: String(faces), ...win, mainThreadBusyPct: mainBusyPct, scriptPct, cpuRendererPct: cpu("renderer"), cpuGpuProcPct: cpu("GPU"), jsHeapMB: Math.round(heap / 1048576), rendererRssMB: renderer, gpuRssMB: gpu };
 }
 
-const play = [await playback(VIDEO_OBJ, false), await playback(VIDEO_FACE, true)];
+const play = process.env.PERF_SKIP_PLAY ? [] : [await playback(VIDEO_OBJ, false), await playback(VIDEO_FACE, true)];
 process.stdout.write("p\n");
 await new Promise<void>((done) => server.httpServer.close(() => done()));
 

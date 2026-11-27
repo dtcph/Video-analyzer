@@ -53,6 +53,7 @@ function resetCounts(): void {
 }
 
 async function show(k: Kind): Promise<void> {
+  ensureDetector();
   stopSources(); kind = k; generation++;
   go("analysis"); closeTreemap();
   img.hidden = k !== "image"; vid.hidden = k === "image" || k === "none";
@@ -97,6 +98,7 @@ function draw(dets: Det[]): void {
  * Results of a source that was replaced meanwhile are dropped; a paused frame that asked again is redone afterwards.
  */
 let inflight = false, generation = 0, again = false;
+
 async function process(): Promise<void> {
   if (inflight) { again ||= paused(); return; }
   const src = el(), gen = generation;
@@ -254,10 +256,16 @@ $<HTMLInputElement>("faces-on").onchange = async (e) => {
 $("open-tm").onclick = () => openTreemap();
 initTreemap();
 
-loadDetector(threshold)
-  .then((d) => { ready = true; setText(status, () => t("status.ready", { d })); reanalyse(); })
-  .catch((e) => { setText(status, () => t("status.failed", { e: String(e) })); });
-setText(status, () => t("status.loading"));
+let detectorLoading: Promise<void> | undefined;
+/** Lazy (eval/04-runtime.md): the detector loads when a source is chosen, or earlier when pointer or focus reaches the choices. */
+function ensureDetector(): void {
+  if (detectorLoading) return;
+  setText(status, () => t("status.loading"));
+  detectorLoading = loadDetector(threshold)
+    .then((d) => { ready = true; setText(status, () => t("status.ready", { d })); reanalyse(); })
+    .catch((e) => { detectorLoading = undefined; setText(status, () => t("status.failed", { e: String(e) })); });
+}
+for (const ev of ["pointerover", "focusin", "touchstart"]) $("home").querySelector(".choices")!.addEventListener(ev, ensureDetector, { once: true, passive: true });
 setText(homeMsg, () => t("home.privacy"));
 render(true);
 requestAnimationFrame(loop);

@@ -106,17 +106,18 @@ const api = {
     await det.setMode("VIDEO");
     vid.src = url;
     await vid.play();
-    const times: number[] = [];
+    const times: number[] = [], st = { pre: 0, run: 0, post: 0, passes: 0 };
     for (let i = 0; i < n + 5; i++) {
       await new Promise((r) => vid.requestVideoFrameCallback(() => r(undefined)));
       const t0 = performance.now();
       await det.detect(vid);
-      if (i >= 5) times.push(performance.now() - t0); // first frames warm up the GPU pipeline
+      if (i >= 5) { times.push(performance.now() - t0); for (const k of ["pre", "run", "post", "passes"] as const) st[k] += det.stats[k]; } // first frames warm up
     }
+    (window as unknown as { __stages: object }).__stages = Object.fromEntries(Object.entries(st).map(([k, v]) => [k, +(v / n).toFixed(2)]));
     vid.pause();
     times.sort((a, b) => a - b);
     const mean = times.reduce((s, x) => s + x, 0) / times.length;
-    return { meanMs: +mean.toFixed(1), p95Ms: +times[Math.floor(times.length * 0.95)].toFixed(1), fps: +(1000 / mean).toFixed(1), w: vid.videoWidth, h: vid.videoHeight };
+    return { meanMs: +mean.toFixed(1), p95Ms: +times[Math.floor(times.length * 0.95)].toFixed(1), fps: +(1000 / mean).toFixed(1), w: vid.videoWidth, h: vid.videoHeight, stages: (window as unknown as { __stages: object }).__stages } as never;
   },
 
   /** Plays a clip in real time like the app (one detect in flight, newest frame next) and records every result. */

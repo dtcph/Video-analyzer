@@ -12,7 +12,7 @@ This website ships the following third-party software and models.
    https://github.com/google-ai-edge/mediapipe
 
 3. HSEmotion facial expression model enet_b0_8_va_mtl (A. V. Savchenko), Apache License 2.0
-   https://github.com/HSE-asavchenko/face-emotion-recognition  ·  file models/enet_b0_8_va_mtl.onnx, unchanged.
+   https://github.com/HSE-asavchenko/face-emotion-recognition  ·  file models/enet_b0_8_va_mtl.wf16.onnx: weights stored as float16 (cast back to float32 in the graph).
    Trained on AffectNet.
 
 4. onnxruntime-web 1.30.0, MIT License, Copyright (c) Microsoft Corporation

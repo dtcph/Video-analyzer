@@ -7,9 +7,13 @@ import { readFileSync } from "node:fs";
 import { Tracker } from "../../src/tracker.ts";
 
 type D = { name: string; score: number; x: number; y: number; w: number; h: number };
-for (const clip of process.argv.slice(2)) {
-  const frames = JSON.parse(readFileSync(`eval/.out/record-${clip}.json`, "utf8")).frames as { t: number; dets: D[] }[];
-  for (const vote of [false, true]) {
+const rateArg = process.argv.indexOf("--rate");
+const rate = rateArg > 0 ? Number(process.argv[rateArg + 1]) : 0;
+const clips = process.argv.slice(2).filter((a, i, all) => a !== "--rate" && all[i - 1] !== "--rate");
+for (const clip of clips) {
+  let frames = JSON.parse(readFileSync(`eval/.out/record-${clip}.json`, "utf8")).frames as { t: number; dets: D[] }[];
+  if (rate) { let last = -1; frames = frames.filter((f) => (f.t - last >= 1 / rate - 1e-3 ? ((last = f.t), true) : false)); } // keep at most `rate` analyses per second
+  for (const vote of rate ? [true] : [false, true]) {
     const tr = new Tracker(vote);
     let flips = 0, prev: { box: D; label: string }[] = [];
     for (const f of frames) {
@@ -22,6 +26,6 @@ for (const clip of process.argv.slice(2)) {
       prev = cur;
     }
     const tot = [...tr.totals].sort((a, b) => b[1] - a[1]).map(([k, v]) => `${v} ${k}`).join(", ");
-    console.log(`${clip.padEnd(16)} ${vote ? "vote   " : "no vote"} totals: ${tot} | label flips: ${flips}`);
+    console.log(`${clip.padEnd(16)} ${vote ? "vote   " : "no vote"} ${rate ? `${rate}/s` : "all"} (${frames.length} frames) totals: ${tot} | label flips: ${flips}`);
   }
 }
